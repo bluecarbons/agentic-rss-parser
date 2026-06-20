@@ -43,7 +43,7 @@
     "@ai-sdk/openai": "3.0.73",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "ai": "6.0.208",
-    "rss-parser": "3.13.0",
+    "fast-xml-parser": "5.9.3",
     "zod": "4.4.3"
   }
 }

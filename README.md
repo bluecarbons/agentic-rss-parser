@@ -6,6 +6,8 @@
 
 An open-source Node.js library and tool for parsing RSS feeds in agent-driven workflows.
 
+This parser is built from scratch on top of `fast-xml-parser`, not the deprecated `rss-parser` package.
+
 It is designed for three use cases:
 
 - direct programmatic use from Node.js or TypeScript
@@ -97,6 +99,15 @@ Supported compatibility surface:
 - `requestOptions`
 - `defaultRSS`
 - `xml2js`
+
+Supported XML shapes:
+
+- RSS 2.0 feeds with `<item>` entries
+- Atom feeds with `<entry>` entries
+- common namespaced fields like `dc:creator` and `content:encoded`
+- feeds with repeated tags, attributes, and CDATA
+
+The compatibility layer is intentionally conservative: it normalizes output into familiar `rss-parser`-style feed and item objects while keeping the agentic features available through the same package.
 
 Agentic features remain opt-in:
 

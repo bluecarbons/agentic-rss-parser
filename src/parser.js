@@ -1,8 +1,8 @@
-import Parser from 'rss-parser';
 import crypto from 'node:crypto';
 import { analyzeFeedItem } from './agent.js';
 import { createStorage } from './storage.js';
 import { createAnalyzer } from './adapters/provider.js';
+import { parseFeedXml } from './core/parser.js';
 
 function normalizeItem(feedUrl, item) {
   const link = item.link || item.guid || '';
@@ -18,14 +18,22 @@ function normalizeItem(feedUrl, item) {
 }
 
 export async function runAgenticParser(config) {
-  const parser = new Parser(config.parserOptions);
   const storage = createStorage(config.dbPath);
   const results = [];
   const analyzer = config.analyzer ?? await createAnalyzer(config.model);
 
   try {
     for (const feedUrl of config.feedUrls) {
-      const feed = await parser.parseURL(feedUrl);
+      const response = await fetch(feedUrl, {
+        ...config.parserOptions?.requestOptions,
+        headers: config.parserOptions?.headers
+      });
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const xml = await response.text();
+      const feed = await parseFeedXml(xml, config.parserOptions);
       for (const item of feed.items) {
         const normalized = normalizeItem(feedUrl, item);
         if (storage.hasProcessed(normalized.id)) continue;

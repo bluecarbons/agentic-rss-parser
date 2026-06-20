@@ -1,12 +1,16 @@
-import Parser from 'rss-parser';
 import { readFile } from 'node:fs/promises';
 import { runAgenticParser } from './parser.js';
+import { parseFeedXml } from './core/parser.js';
 
 const DEFAULT_OPTIONS = {
   normalize: true,
   customFields: { feed: [], item: [] },
   headers: undefined,
-  timeout: 10000
+  timeout: 10000,
+  maxRedirects: 5,
+  requestOptions: {},
+  defaultRSS: 2.0,
+  xml2js: {}
 };
 
 function mergeOptions(options = {}) {
@@ -16,6 +20,14 @@ function mergeOptions(options = {}) {
     customFields: {
       feed: [...(DEFAULT_OPTIONS.customFields.feed || []), ...(options.customFields?.feed || [])],
       item: [...(DEFAULT_OPTIONS.customFields.item || []), ...(options.customFields?.item || [])]
+    },
+    requestOptions: {
+      ...DEFAULT_OPTIONS.requestOptions,
+      ...(options.requestOptions || {})
+    },
+    xml2js: {
+      ...DEFAULT_OPTIONS.xml2js,
+      ...(options.xml2js || {})
     }
   };
 }
@@ -23,28 +35,31 @@ function mergeOptions(options = {}) {
 export class ParserCompat {
   constructor(options = {}) {
     this.options = mergeOptions(options);
-    this._parser = new Parser(this.options);
   }
 
   parseURL(url, callback) {
-    const promise = fetch(url, this.options.requestOptions ? { ...this.options.requestOptions, headers: this.options.headers } : { headers: this.options.headers })
+    const promise = fetch(url, {
+      ...this.options.requestOptions,
+      headers: this.options.headers
+    })
       .then((response) => {
         if (!response.ok) {
           throw new Error(`Request failed with status ${response.status}`);
         }
         return response.text();
       })
-      .then((xml) => this._parser.parseString(xml));
+      .then((xml) => this.parseString(xml));
+
     return maybeCallback(promise, callback);
   }
 
   parseString(xml, callback) {
-    const promise = this._parser.parseString(xml);
+    const promise = parseFeedXml(xml, this.options);
     return maybeCallback(promise, callback);
   }
 
   parseFile(filePath, callback) {
-    const promise = readFile(filePath, 'utf8').then((xml) => this._parser.parseString(xml));
+    const promise = readFile(filePath, 'utf8').then((xml) => this.parseString(xml));
     return maybeCallback(promise, callback);
   }
 
