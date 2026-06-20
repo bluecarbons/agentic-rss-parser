@@ -4,35 +4,50 @@
 [![npm version](https://img.shields.io/npm/v/agentic-rss-parser.svg)](https://www.npmjs.com/package/agentic-rss-parser)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-An open-source Node.js library and tool for parsing RSS feeds in agent-driven workflows.
-
-This parser is built from scratch on top of `fast-xml-parser`, not the deprecated `rss-parser` package.
+Agentic RSS Parser is a from-scratch Node.js library for reading RSS and Atom feeds, normalizing them into a familiar parser API, and optionally running agentic analysis on top of the feed items.
 
 It is designed for three use cases:
 
-- direct programmatic use from Node.js or TypeScript
-- CLI usage for quick feed runs
-- MCP-style tool execution for agentic clients and IDEs
+- as a drop-in migration path for `rss-parser`-style code
+- as a programmatic feed engine for Node.js and TypeScript apps
+- as an agent-facing tool layer for workflows, automations, and IDE integrations
 
-## Features
+Built-in principles:
 
-- RSS/Atom feed ingestion
-- deduplication with native `node:sqlite`
-- optional full-article enrichment
-- structured analysis output
-- CLI entrypoint
-- library exports for npm consumption
+- modern XML parsing using `fast-xml-parser`
+- conservative normalization for compatibility
+- opt-in agentic behavior, never forced
+- small public surface area with documented defaults
+- no dependency on the deprecated `rss-parser` package
 
-## Install
+## What It Does
+
+- parses RSS 2.0 and Atom feeds
+- returns normalized feed and item objects
+- supports `Parser`, `parseURL`, `parseString`, and `parseFile`
+- keeps item deduplication in SQLite for agentic workflows
+- fetches full article text when summaries are too short
+- supports provider-based analysis with OpenAI-compatible and Anthropic-compatible adapters
+- exposes an MCP transport for agent-friendly integrations
+
+## Installation
 
 ```bash
 npm install agentic-rss-parser
 ```
 
-## Use as a library
+## Quick Start
 
 ```js
-import { runAgenticParser } from 'agentic-rss-parser';
+import Parser, { runAgenticParser } from 'agentic-rss-parser';
+
+const parser = new Parser({
+  timeout: 10000,
+  headers: { 'user-agent': 'my-app/1.0' }
+});
+
+const feed = await parser.parseURL('https://news.ycombinator.com/rss');
+console.log(feed.title);
 
 const results = await runAgenticParser({
   feedUrls: ['https://news.ycombinator.com/rss'],
@@ -40,12 +55,12 @@ const results = await runAgenticParser({
   fetchFullArticle: false
 });
 
-console.log(results);
+console.log(results.length);
 ```
 
-## Drop-in replacement mode
+## Library API
 
-The package also exports a `Parser` class with the same core usage pattern as `rss-parser`.
+The package exports a `Parser` class for migration-friendly code paths.
 
 ```js
 import Parser from 'agentic-rss-parser';
@@ -64,7 +79,7 @@ console.log(feed.title);
 console.log(feed.items[0].title);
 ```
 
-You can also use callback style:
+Callback style is supported for compatibility:
 
 ```js
 const parser = new Parser();
@@ -116,7 +131,42 @@ Agentic features remain opt-in:
 - deduplication storage
 - MCP tool server
 
-## Use as a CLI
+## Agentic Features
+
+The agentic workflow is built for higher-level automation:
+
+- dedupe items by stable IDs
+- enrich short summaries with full article text
+- classify feeds via pluggable model providers
+- persist processed state in SQLite
+- emit structured analysis objects for downstream routing
+
+Example:
+
+```js
+import { runAgenticParser } from 'agentic-rss-parser';
+
+const results = await runAgenticParser({
+  feedUrls: [
+    'https://news.ycombinator.com/rss',
+    'https://hnrss.org/frontpage'
+  ],
+  dbPath: './data/rss-agent.db',
+  fetchFullArticle: true,
+  model: {
+    provider: 'openai',
+    model: 'gpt-4o-mini'
+  }
+});
+
+for (const entry of results) {
+  if (entry.analysis.decision === 'relevant') {
+    console.log(entry.analysis.summary);
+  }
+}
+```
+
+## CLI
 
 ```bash
 npx agentic-rss-parser --feed https://news.ycombinator.com/rss
@@ -131,13 +181,13 @@ npx agentic-rss-parser \
   --db ./data/rss-agent.db
 ```
 
-## Use as an MCP tool server
+## MCP Tooling
 
 ```bash
 npx agentic-rss-mcp --feed https://news.ycombinator.com/rss
 ```
 
-This project currently ships a lightweight JSON-over-stdio compatible runner. If you want a full MCP protocol implementation, that can be added in a follow-up release without changing the public package surface.
+This project exposes an MCP server entrypoint for agent-facing clients. The implementation is intentionally minimal and can be wired into desktop or automation clients that speak stdio-based tool protocols.
 
 ## Development
 
@@ -145,6 +195,27 @@ This project currently ships a lightweight JSON-over-stdio compatible runner. If
 npm install
 npm test
 ```
+
+## Project Structure
+
+- `src/core/parser.js`: XML parsing and normalization
+- `src/compat.js`: `rss-parser` compatibility surface
+- `src/parser.js`: agentic feed pipeline
+- `src/adapters/provider.js`: model provider adapters
+- `src/mcp/server.js`: MCP entrypoint
+
+## Implementation Notes
+
+- feed fetching uses native `fetch`
+- parser requests support headers, request options, and timeout handling
+- output is normalized into stable feed/item objects instead of exposing raw XML shapes
+- SQLite is used only for deduplication and analysis persistence
+
+## Security
+
+- only fetch trusted feed URLs
+- keep model-provider API keys out of source control
+- review custom XML feeds before processing them in production
 
 ## Contributing
 

@@ -38,10 +38,7 @@ export class ParserCompat {
   }
 
   parseURL(url, callback) {
-    const promise = fetch(url, {
-      ...this.options.requestOptions,
-      headers: this.options.headers
-    })
+    const promise = fetchWithTimeout(url, this.options)
       .then((response) => {
         if (!response.ok) {
           throw new Error(`Request failed with status ${response.status}`);
@@ -72,6 +69,35 @@ export class ParserCompat {
       analyzer: config.analyzer,
       model: config.model
     });
+  }
+}
+
+async function fetchWithTimeout(url, options) {
+  assertHttpUrl(url);
+  const controller = new AbortController();
+  const timeoutMs = Number.isFinite(options.timeout) ? options.timeout : DEFAULT_OPTIONS.timeout;
+  const timeoutId = setTimeout(() => controller.abort(new Error('Request timed out')), timeoutMs);
+  const requestOptions = {
+    ...options.requestOptions,
+    signal: controller.signal,
+    headers: {
+      'user-agent': 'agentic-rss-parser/1.0.1',
+      ...(options.headers || {}),
+      ...(options.requestOptions?.headers || {})
+    }
+  };
+
+  try {
+    return await fetch(url, requestOptions);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function assertHttpUrl(url) {
+  const parsed = new URL(url);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`Unsupported feed URL protocol: ${parsed.protocol}`);
   }
 }
 

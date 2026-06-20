@@ -30,13 +30,6 @@ function textValue(value) {
   return '';
 }
 
-function attrs(value) {
-  if (!value || typeof value !== 'object') return {};
-  return Object.fromEntries(
-    Object.entries(value).filter(([key]) => key.startsWith('@_')).map(([key, val]) => [key.slice(2), val])
-  );
-}
-
 function extractCustomValue(source, key, keepArray = false) {
   const value = source?.[key];
   if (value == null) return keepArray ? [] : undefined;
