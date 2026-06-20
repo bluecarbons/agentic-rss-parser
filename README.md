@@ -58,7 +58,7 @@ const results = await runAgenticParser({
 console.log(results.length);
 ```
 
-## Library API
+## API
 
 The package exports a `Parser` class for migration-friendly code paths.
 
@@ -89,9 +89,9 @@ parser.parseString(xml, (err, feed) => {
 });
 ```
 
-### Migration from `rss-parser`
+### Migration From `rss-parser`
 
-Most existing code should keep working:
+Most existing code should keep working with a one-line import change:
 
 ```js
 // Before

@@ -3,6 +3,7 @@ import { analyzeFeedItem } from './agent.js';
 import { createStorage } from './storage.js';
 import { createAnalyzer } from './adapters/provider.js';
 import { parseFeedXml } from './core/parser.js';
+import { fetchTextWithRedirects } from './core/http.js';
 
 function normalizeItem(feedUrl, item) {
   const link = item.link || item.guid || '';
@@ -24,7 +25,7 @@ export async function runAgenticParser(config) {
 
   try {
     for (const feedUrl of config.feedUrls) {
-      const xml = await fetchFeed(feedUrl, config.parserOptions);
+      const xml = await fetchTextWithRedirects(feedUrl, config.parserOptions);
       const feed = await parseFeedXml(xml, config.parserOptions);
       for (const item of feed.items) {
         const normalized = normalizeItem(feedUrl, item);
@@ -46,38 +47,5 @@ export async function runAgenticParser(config) {
     return results;
   } finally {
     storage.close();
-  }
-}
-
-async function fetchFeed(feedUrl, parserOptions = {}) {
-  assertHttpUrl(feedUrl);
-  const controller = new AbortController();
-  const timeoutMs = Number.isFinite(parserOptions.timeout) ? parserOptions.timeout : 10000;
-  const timeoutId = setTimeout(() => controller.abort(new Error('Request timed out')), timeoutMs);
-  const requestOptions = {
-    ...parserOptions.requestOptions,
-    signal: controller.signal,
-    headers: {
-      'user-agent': 'agentic-rss-parser/1.0.1',
-      ...(parserOptions.headers || {}),
-      ...(parserOptions.requestOptions?.headers || {})
-    }
-  };
-
-  try {
-    const response = await fetch(feedUrl, requestOptions);
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
-    }
-    return await response.text();
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-function assertHttpUrl(url) {
-  const parsed = new URL(url);
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error(`Unsupported feed URL protocol: ${parsed.protocol}`);
   }
 }
