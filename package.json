@@ -2,6 +2,9 @@
   "name": "agentic-rss-parser",
   "version": "1.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "description": "An open-source agentic RSS parser and tool server for Node.js.",
   "license": "MIT",
   "main": "./src/index.js",

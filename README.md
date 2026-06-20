@@ -6,6 +6,15 @@
 
 Agentic RSS Parser is a from-scratch Node.js library for reading RSS and Atom feeds, normalizing them into a familiar parser API, and optionally running agentic analysis on top of the feed items.
 
+Supported Node.js version:
+
+- Node.js `>=22.5.0`
+
+Why:
+
+- the project uses the built-in `node:sqlite` module, which was added in Node.js 22.5.0
+- Node 20 does not include `node:sqlite`, so it will fail in CI and at runtime
+
 It is designed for three use cases:
 
 - as a drop-in migration path for `rss-parser`-style code
