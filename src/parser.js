@@ -22,11 +22,14 @@ export async function runAgenticParser(config) {
   const storage = createStorage(config.dbPath);
   const results = [];
   const analyzer = config.analyzer ?? await createAnalyzer(config.model);
+  const concurrency = normalizeConcurrency(config.concurrency);
 
   try {
-    for (const feedUrl of config.feedUrls) {
+    const feedRuns = await mapWithConcurrency(config.feedUrls, concurrency, async (feedUrl) => {
       const xml = await fetchTextWithRedirects(feedUrl, config.parserOptions);
       const feed = await parseFeedXml(xml, config.parserOptions);
+      const feedResults = [];
+
       for (const item of feed.items) {
         const normalized = normalizeItem(feedUrl, item);
         if (storage.hasProcessed(normalized.id)) continue;
@@ -41,11 +44,38 @@ export async function runAgenticParser(config) {
           id: crypto.randomUUID(),
           ...analysis
         });
-        results.push({ item: normalized, analysis });
+        feedResults.push({ item: normalized, analysis });
       }
-    }
+
+      return feedResults;
+    });
+
+    results.push(...feedRuns.flat());
     return results;
   } finally {
     storage.close();
   }
+}
+
+function normalizeConcurrency(concurrency) {
+  const parsed = Number(concurrency);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.min(16, Math.trunc(parsed));
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let index = 0;
+
+  async function next() {
+    while (index < items.length) {
+      const currentIndex = index;
+      index += 1;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => next());
+  await Promise.all(workers);
+  return results;
 }

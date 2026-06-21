@@ -48,7 +48,12 @@
   },
   "files": [
     "src",
+    "examples",
     "README.md",
+    "SUPPORT.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+    "CHANGELOG.md",
     "LICENSE",
     "CONTRIBUTING.md"
   ],

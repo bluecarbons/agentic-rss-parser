@@ -6,6 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Open Source](https://img.shields.io/badge/open%20source-yes-brightgreen)](./LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/bluecarbons/BLUECARBONS-RSS-PARSER?style=social)](https://github.com/bluecarbons/BLUECARBONS-RSS-PARSER)
+[![GitHub issues](https://img.shields.io/github/issues/bluecarbons/BLUECARBONS-RSS-PARSER)](https://github.com/bluecarbons/BLUECARBONS-RSS-PARSER/issues)
 
 Agentic RSS Parser is a from-scratch Node.js library for parsing RSS and Atom feeds, normalizing them into a familiar `Parser` API, and optionally running agentic analysis on top of feed items.
 
@@ -121,6 +122,19 @@ for (const entry of results) {
 }
 ```
 
+You can also control concurrent feed processing:
+
+```js
+const results = await runAgenticParser({
+  feedUrls: [
+    'https://news.ycombinator.com/rss',
+    'https://hnrss.org/frontpage'
+  ],
+  dbPath: './data/rss-agent.db',
+  concurrency: 2
+});
+```
+
 ## Works With Google ADK And Other Agent Frameworks
 
 Agentic RSS Parser is designed to complement agent frameworks, not replace them.
@@ -149,6 +163,8 @@ Mental model:
 For a concrete starting point, see:
 
 - [`examples/direct.mjs`](./examples/direct.mjs)
+- [`examples/README.md`](./examples/README.md)
+- [`examples/adk-real.mjs`](./examples/adk-real.mjs)
 - [`examples/adk-tool.mjs`](./examples/adk-tool.mjs)
 
 ## Migration From `rss-parser`
@@ -212,6 +228,7 @@ What it does support:
 - you can call it multiple times from your own code in parallel when that makes sense
 - you can wrap it in an ADK workflow that uses parallel agents or parallel tool calls
 - you can manage concurrency at the orchestration layer instead of inside the parser
+- you can set `concurrency` on `runAgenticParser` to process multiple feeds at once
 
 What it does not do yet:
 

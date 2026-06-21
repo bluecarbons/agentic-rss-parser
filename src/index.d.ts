@@ -60,6 +60,7 @@ export class Parser<Feed = unknown, Item = ParserFeedItem> {
     config?: {
       dbPath?: string;
       fetchFullArticle?: boolean;
+      concurrency?: number;
       analyzer?: (input: { item: Item; context: string }) => unknown;
       model?: {
         provider?: 'heuristic' | 'openai' | 'anthropic' | 'local';
@@ -79,6 +80,7 @@ export function runAgenticParser(config: {
   feedUrls: string[];
   dbPath: string;
   fetchFullArticle?: boolean;
+  concurrency?: number;
   parserOptions?: ParserOptions;
   analyzer?: (input: { item: ParserFeedItem; context: string }) => unknown;
   model?: {

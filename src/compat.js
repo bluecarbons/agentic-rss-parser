@@ -59,6 +59,7 @@ export class ParserCompat {
       feedUrls: Array.isArray(urls) ? urls : [urls],
       dbPath: config.dbPath ?? './data/rss-agent.db',
       fetchFullArticle: Boolean(config.fetchFullArticle),
+      concurrency: config.concurrency,
       parserOptions: this.options,
       analyzer: config.analyzer,
       model: config.model
