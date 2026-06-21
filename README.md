@@ -199,7 +199,10 @@ npm test
 - only fetch trusted feed URLs
 - keep model-provider API keys out of source control
 - review custom XML feeds before processing them in production
+- see [SECURITY.md](./SECURITY.md) for vulnerability reporting
 
 ## Contributing
 
 Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
+
+Please also review the [Code of Conduct](./CODE_OF_CONDUCT.md) before participating.
