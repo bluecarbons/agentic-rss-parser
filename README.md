@@ -257,6 +257,7 @@ pnpm test
 - pinned Node.js support is documented in [SUPPORT.md](./SUPPORT.md)
 - dependency updates should be reviewed before release
 - `npm audit` should stay clean before merging
+- release steps are documented in [PUBLISHING.md](./PUBLISHING.md)
 
 ## Project Structure
 
