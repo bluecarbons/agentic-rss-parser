@@ -20,3 +20,6 @@ jobs:
           cache: npm
       - run: npm install
       - run: npm test
+      - run: npm audit --audit-level=high
+      - run: npm pack --dry-run
+      - run: npm publish --dry-run

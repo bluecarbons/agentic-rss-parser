@@ -8,7 +8,7 @@ Agentic RSS Parser is a from-scratch Node.js RSS and Atom parser built on fast-x
 
 Suggested website:
 
-https://github.com/bluecarbons/BLUECARBONS-RSS-PARSER
+https://github.com/bluecarbons/agentic-rss-parser
 
 ## Topics
 
@@ -39,5 +39,7 @@ https://github.com/bluecarbons/BLUECARBONS-RSS-PARSER
 - merge to `main`
 - run `npm test`
 - run `npm audit`
+- run `npm pack --dry-run`
+- run `npm publish --dry-run`
 - update `CHANGELOG.md`
 - cut GitHub release from the latest `main` commit
