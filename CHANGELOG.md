@@ -2,12 +2,15 @@
 
 ## 1.0.4
 
-- release metadata cleanup
-- added a dedicated npm release script alongside pnpm
+- Bugs fixes and enhancements.
+
+## 1.0.5
+
+- Bugs fixes and enhancements.
 
 ## 1.0.3
 
-- published as the next patch release after registry verification
+- Bugs fixes and enhancements.
 
 ## 1.0.2
 
