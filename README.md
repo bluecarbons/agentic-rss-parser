@@ -5,6 +5,7 @@
 [![Node.js >= 22.5](https://img.shields.io/badge/node-%3E%3D22.5.0-339933)](./SUPPORT.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Open Source](https://img.shields.io/badge/open%20source-yes-brightgreen)](./LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/bluecarbons/BLUECARBONS-RSS-PARSER?style=social)](https://github.com/bluecarbons/BLUECARBONS-RSS-PARSER)
 
 Agentic RSS Parser is a from-scratch Node.js library for parsing RSS and Atom feeds, normalizing them into a familiar `Parser` API, and optionally running agentic analysis on top of feed items.
 
@@ -145,6 +146,11 @@ Mental model:
 - Agentic RSS Parser gathers, normalizes, deduplicates, and enriches the feed data
 - ADK or another orchestrator uses the structured result to continue the workflow
 
+For a concrete starting point, see:
+
+- [`examples/direct.mjs`](./examples/direct.mjs)
+- [`examples/adk-tool.mjs`](./examples/adk-tool.mjs)
+
 ## Migration From `rss-parser`
 
 Most existing code can switch imports with minimal changes:
@@ -196,6 +202,22 @@ npx agentic-rss-parser \
 ```bash
 npx agentic-rss-mcp --feed https://news.ycombinator.com/rss
 ```
+
+## Parallelism
+
+Agentic RSS Parser does not currently run a swarm-style parallel orchestration layer on its own.
+
+What it does support:
+
+- you can call it multiple times from your own code in parallel when that makes sense
+- you can wrap it in an ADK workflow that uses parallel agents or parallel tool calls
+- you can manage concurrency at the orchestration layer instead of inside the parser
+
+What it does not do yet:
+
+- automatic swarm scheduling
+- distributed scraping coordination
+- cross-feed task planning
 
 ## Development
 
