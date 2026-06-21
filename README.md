@@ -22,6 +22,14 @@ Why Node.js 22.5.0 or newer:
 - `node:sqlite` was added in Node.js 22.5.0
 - Node.js 20 does not support the current codebase
 
+The CI workflow validates the package on Node.js 22.x and 24.x.
+
+Release and validation workflow:
+
+- CI runs the supported Node.js matrix and validates install, tests, audit, and packaging
+- `npm run release:npm` and `pnpm run release:pnpm` are the documented release entry points
+- the release checks are aligned with [`SUPPORT.md`](./SUPPORT.md) and [`PUBLISHING.md`](./PUBLISHING.md)
+
 ## Design Goals
 
 - compatible migration path for `rss-parser`-style code

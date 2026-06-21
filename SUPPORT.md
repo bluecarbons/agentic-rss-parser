@@ -17,6 +17,8 @@ Recommended CI matrix:
 - Node.js 22.x
 - Node.js 24.x
 
+These are the versions validated by the repository CI workflow.
+
 Recommended local setup:
 
 - use `npm install`
