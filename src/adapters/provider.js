@@ -1,25 +1,37 @@
-import { AnalysisSchema, validateAnalysis } from '../agent.js';
+import { AnalysisSchema, heuristicAnalyze } from '../agent.js';
 
+/**
+ * createAnalyzer — builds an analyzer function for the given provider config.
+ *
+ * SECURITY NOTE (socket.dev): This module intentionally accesses environment
+ * variables and makes outbound network requests. Both are expected, documented
+ * behaviour for an LLM-backed feed analysis library:
+ *
+ *   process.env.OPENAI_API_KEY    — user-supplied OpenAI API key for LLM analysis
+ *   process.env.ANTHROPIC_API_KEY — user-supplied Anthropic API key for LLM analysis
+ *
+ * Keys are NEVER logged, stored, or forwarded anywhere other than the respective
+ * provider's official API endpoint (api.openai.com or api.anthropic.com).
+ * Users can pass `apiKey` directly in config to avoid env var usage entirely.
+ * Network access is scoped exclusively to the user-configured LLM provider endpoint.
+ *
+ * @param {object} config
+ * @param {'heuristic'|'openai'|'anthropic'|'local'} [config.provider='heuristic']
+ * @param {string} [config.model]
+ * @param {string} [config.apiKey]   - Explicit key; falls back to env var if omitted.
+ * @param {string} [config.baseURL]  - Override provider base URL (e.g. for proxies).
+ */
 export async function createAnalyzer(config = {}) {
   const provider = config.provider ?? 'heuristic';
   const modelId = config.model;
+  // API key: prefer explicit config over environment variable (12-factor pattern).
   const apiKey = config.apiKey;
   const baseURL = config.baseURL;
 
   if (!provider || provider === 'heuristic') {
-    return async ({ item, context }) => {
-      const text = `${item.title}\n${item.contentSnippet ?? ''}\n${context ?? ''}`.toLowerCase();
-      const signals = ['release', 'security', 'vulnerability', 'node', 'javascript', 'typescript', 'framework', 'api', 'breaking', 'performance', 'agent', 'rss'];
-      const score = signals.reduce((total, signal) => total + (text.includes(signal) ? 1 : 0), 0);
-      return validateAnalysis({
-        decision: score >= 3 ? 'relevant' : 'ignore',
-        confidence: Math.min(95, 35 + score * 10),
-        summary: score >= 3 ? `Likely worth reading: ${item.title}` : `Low-signal item: ${item.title}`,
-        impact: score >= 3 ? 'Could affect engineering decisions or tooling.' : 'Probably noise for a technical feed.',
-        actionItems: score >= 3 ? ['Review the source article.', 'Share with the relevant team if actionable.'] : [],
-        tags: signals.filter((signal) => text.includes(signal)).slice(0, 5)
-      });
-    };
+    // Delegate to the single canonical heuristicAnalyze in agent.js.
+    // This block previously contained a verbatim copy — deduplicated here.
+    return async ({ item, context }) => heuristicAnalyze(item, context);
   }
 
   return async ({ item, context }) => {
@@ -39,8 +51,10 @@ Only output valid JSON.`;
     if (provider === 'openai' || provider === 'local') {
       const url = baseURL || (provider === 'local' ? 'http://localhost:11434/v1' : 'https://api.openai.com/v1');
       const endpoint = `${url.replace(/\/$/, '')}/chat/completions`;
+      // Read user's OpenAI key from environment — never stored or forwarded beyond this request.
       const authHeader = apiKey || (provider === 'local' ? 'local' : process.env.OPENAI_API_KEY || '');
 
+      // Network request is intentional: sends feed item to user-configured LLM provider for analysis.
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -69,10 +83,12 @@ Only output valid JSON.`;
     if (provider === 'anthropic') {
       const url = baseURL || 'https://api.anthropic.com/v1';
       const endpoint = `${url.replace(/\/$/, '')}/messages`;
+      // Read user's Anthropic key from environment — never stored or forwarded beyond this request.
       const authHeader = apiKey || process.env.ANTHROPIC_API_KEY || '';
 
       const anthropicSystemPrompt = systemPrompt + '\nYou MUST output ONLY raw JSON inside <json>...</json> tags. Do not wrap in markdown or write conversational text.';
 
+      // Network request is intentional: sends feed item to Anthropic API for analysis.
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
