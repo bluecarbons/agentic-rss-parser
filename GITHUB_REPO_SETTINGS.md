@@ -4,7 +4,7 @@
 
 Suggested description:
 
-Agentic RSS Parser is a from-scratch Node.js RSS and Atom parser built on fast-xml-parser. It preserves rss-parser-style compatibility for migration while adding agentic analysis, deduplication, enrichment, and MCP-ready tooling.
+Agentic RSS Parser is a from-scratch, zero-dependency Node.js RSS and Atom parser. It preserves rss-parser-style compatibility for migration while adding agentic analysis, deduplication, enrichment, and MCP-ready tooling.
 
 Suggested website:
 

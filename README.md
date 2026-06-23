@@ -8,48 +8,46 @@
 [![GitHub stars](https://img.shields.io/github/stars/bluecarbons/agentic-rss-parser?style=social)](https://github.com/bluecarbons/agentic-rss-parser)
 [![GitHub issues](https://img.shields.io/github/issues/bluecarbons/agentic-rss-parser)](https://github.com/bluecarbons/agentic-rss-parser/issues)
 
-Agentic RSS Parser is a from-scratch Node.js library for parsing RSS and Atom feeds, normalizing them into a familiar `Parser` API, and optionally running agentic analysis on top of feed items.
+**Agentic RSS Parser** is an enterprise-grade, **zero-dependency** Node.js library for parsing RSS and Atom feeds, normalizing them into a familiar `Parser` API, and optionally running agentic analysis on top of feed items.
+
+By eliminating all external production dependencies, the package minimizes your security risk surface, ensures lightning-fast installation times, and completely avoids dependency conflict hell.
+
+---
+
+## Why Zero-Dependency?
+
+Traditional feed parsers and SDKs pull in dozens of nested dependencies, dragging in heavy XML parsing libraries, schema validators (`zod`), AI SDKs (`ai`, `@ai-sdk/*`), and transport layers (`@modelcontextprotocol/sdk`). This results in:
+- Large bundle size & slow installations
+- Higher risk of supply-chain attacks (CVEs in transitive packages)
+- Complex maintenance overhead (frequent unmaintained package alerts on services like Socket.dev)
+
+**Agentic RSS Parser solves this by using 100% native Node.js APIs:**
+- **Custom XML Engine**: A clean-room, character-by-character scanner parser. It is non-recursive (no stack overflows) and does not expand external entities (making it naturally immune to XXE and Billion Laughs attacks).
+- **Native JSON-RPC MCP Server**: A custom stdin/stdout transport server built directly on Node's `readline` module, matching the official MCP specification.
+- **Native LLM Adapters**: Direct connection to OpenAI and Anthropic REST endpoints using Node's built-in `fetch()`.
+- **Manual Schema Validation**: Zero-dependency schema checks replacing `zod`.
+- **Built-in SQLite Caching**: Leveraging Node's experimental native `node:sqlite` module for deduplication.
+
+---
 
 ## Supported Environments
 
-- Node.js `>=22.5.0`
+- Node.js `>=22.5.0` (required for built-in `node:sqlite` module)
 - ESM-only package
 - Linux, macOS, and Windows
 
-Why Node.js 22.5.0 or newer:
-
-- the project uses the built-in `node:sqlite` module
-- `node:sqlite` was added in Node.js 22.5.0
-- Node.js 20 does not support the current codebase
-
-The CI workflow validates the package on Node.js 22.x and 24.x.
-
-Release and validation workflow:
-
-- CI runs the supported Node.js matrix and validates install, tests, audit, and packaging
-- `npm run release:npm` and `pnpm run release:pnpm` are the documented release entry points
-- the release checks are aligned with [`SUPPORT.md`](./SUPPORT.md) and [`PUBLISHING.md`](./PUBLISHING.md)
-
-## Design Goals
-
-- compatible migration path for `rss-parser`-style code
-- small, well-documented public API
-- modern XML parsing with `fast-xml-parser`
-- conservative normalization for compatibility
-- agentic features are opt-in, not forced
-- no dependency on the deprecated `rss-parser` package
+---
 
 ## Features
 
-- parses RSS 2.0 and Atom feeds
-- supports `Parser`, `parseURL`, `parseString`, and `parseFile`
-- normalizes output into stable feed and item objects
-- supports callback and promise styles
-- supports `customFields`, `timeout`, `headers`, `maxRedirects`, `requestOptions`, `defaultRSS`, and `xml2js`
-- deduplicates processed items with SQLite
-- enriches summaries with full article text
-- supports provider-backed analysis with OpenAI-compatible and Anthropic-compatible adapters
-- exposes a CLI and MCP tool entrypoint
+- **Parses RSS 2.0 & Atom Feeds**: Full support for namespaces, tags, attributes, CDATA blocks, and HTML entities.
+- **Standard Parser API Compatibility**: Full drop-in replacement for the classic `rss-parser` package (`parseURL`, `parseString`, `parseFile`, `customFields`, `timeout`, `headers`, `maxRedirects`, etc.).
+- **Built-in Article Enrichment**: Automatically fetches the full content of articles behind feed URLs.
+- **Agentic Analysis**: Integrated heuristic and LLM analysis adapters for summarizing and assessing feed items.
+- **Built-in MCP Server**: Exposes feed retrieval and full-text article extraction tools via Model Context Protocol (stdio transport).
+- **SQLite Deduplication**: Prevents reprocessing of previously ingested feed items.
+
+---
 
 ## Installation
 
@@ -61,9 +59,11 @@ npm install agentic-rss-parser
 pnpm add agentic-rss-parser
 ```
 
+---
+
 ## Usage
 
-### Parse a feed
+### Parsing a Feed (Standard API)
 
 ```js
 import Parser from 'agentic-rss-parser';
@@ -74,45 +74,36 @@ const parser = new Parser({
 });
 
 const feed = await parser.parseURL('https://news.ycombinator.com/rss');
-console.log(feed.title);
+console.log(`Feed Title: ${feed.title}`);
+
+for (const item of feed.items) {
+  console.log(`- [${item.title}](${item.link})`);
+}
 ```
 
-### Use the compatibility API
+### Custom Field Mapping
+
+Map arbitrary XML attributes or child tags to custom object properties:
 
 ```js
 import Parser from 'agentic-rss-parser';
 
 const parser = new Parser({
   customFields: {
-    item: [['dc:creator', 'creator']]
+    item: [
+      ['dc:creator', 'creator'],
+      ['media:content', 'media', { keepArray: true }]
+    ]
   }
 });
 
-const feed = await parser.parseString(xml);
+const feed = await parser.parseString(xmlString);
 console.log(feed.items[0].creator);
 ```
 
-### Callback style
+### Agentic Workflow with LLM Summarization
 
-```js
-const parser = new Parser();
-
-parser.parseString(xml, (err, feed) => {
-  if (err) throw err;
-  console.log(feed.title);
-});
-```
-
-### Parse from a file
-
-```js
-import Parser from 'agentic-rss-parser';
-
-const parser = new Parser();
-const feed = await parser.parseFile('./feed.xml');
-```
-
-### Agentic workflow
+Ingest feeds, deduplicate items using SQLite, extract the full web article content, and analyze the feed with OpenAI/Anthropic using zero dependencies:
 
 ```js
 import { runAgenticParser } from 'agentic-rss-parser';
@@ -122,101 +113,42 @@ const results = await runAgenticParser({
   dbPath: './data/rss-agent.db',
   fetchFullArticle: true,
   model: {
-    provider: 'openai',
+    provider: 'openai', // 'openai' | 'anthropic' | 'local'
     model: 'gpt-4o-mini'
   }
 });
 
 for (const entry of results) {
   if (entry.analysis.decision === 'relevant') {
-    console.log(entry.analysis.summary);
+    console.log(`Relevant item: ${entry.item.title}`);
+    console.log(`Summary: ${entry.analysis.summary}`);
   }
 }
 ```
 
-You can also control concurrent feed processing:
+---
 
-```js
-const results = await runAgenticParser({
-  feedUrls: [
-    'https://news.ycombinator.com/rss',
-    'https://hnrss.org/frontpage'
-  ],
-  dbPath: './data/rss-agent.db',
-  concurrency: 2
-});
-```
+## Integration with Agentic Frameworks (e.g., Google ADK)
 
-## Works With Google ADK And Other Agent Frameworks
+**Agentic RSS Parser** acts as a data pipeline component rather than a standalone orchestrator. It is designed to work in tandem with agent orchestration frameworks like **Google ADK**:
 
-Agentic RSS Parser is designed to complement agent frameworks, not replace them.
+- **Feed Retrieval & Enrichment**: This package extracts raw feeds, follows redirects, normalizes entries, deduplicates via SQLite, and retrieves clean full-text article bodies.
+- **Orchestration**: The agent framework (e.g., ADK) consumes these normalized, enriched JSON payloads to make decisions, run multi-agent workflows, or build memory stores.
+- **MCP Tool Support**: You can easily run this parser as an MCP Server that exposes its parsing capabilities directly to any MCP-compliant agent.
 
-Use it when you want:
+Check out the [examples/](./examples/) directory for integration code:
+- [examples/direct.mjs](./examples/direct.mjs): Minimal programmatic parsing.
+- [examples/adk-tool.mjs](./examples/adk-tool.mjs): Wrapping the parser as a Google ADK-compatible tool.
 
-- feed ingestion and normalization
-- `rss-parser`-style compatibility for existing code
-- deduplication and article enrichment
-- a clean, agent-ready tool surface
+---
 
-It fits naturally alongside frameworks like Google ADK, where the framework handles agent orchestration and this package handles RSS and Atom data retrieval, normalization, and enrichment.
-
-Typical integration patterns:
-
-- call the library directly from a Node.js tool or workflow
-- wrap `Parser` or `runAgenticParser` inside an ADK custom tool
-- expose the parser through MCP for agent clients that prefer tool protocols
-
-Mental model:
-
-- ADK decides what to do
-- Agentic RSS Parser gathers, normalizes, deduplicates, and enriches the feed data
-- ADK or another orchestrator uses the structured result to continue the workflow
-
-For a concrete starting point, see:
-
-- [`examples/direct.mjs`](./examples/direct.mjs)
-- [`examples/README.md`](./examples/README.md)
-- [`examples/adk-real.mjs`](./examples/adk-real.mjs)
-- [`examples/adk-tool.mjs`](./examples/adk-tool.mjs)
-
-## Migration From `rss-parser`
-
-Most existing code can switch imports with minimal changes:
-
-```js
-import Parser from 'agentic-rss-parser';
-```
-
-Supported compatibility surface:
-
-- `new Parser(options)`
-- `parseURL(url[, callback])`
-- `parseString(xml[, callback])`
-- `parseFile(path[, callback])`
-- `customFields`
-- `timeout`
-- `headers`
-- `maxRedirects`
-- `requestOptions`
-- `defaultRSS`
-- `xml2js`
-
-Supported XML shapes:
-
-- RSS 2.0 feeds with `<item>` entries
-- Atom feeds with `<entry>` entries
-- namespaced fields like `dc:creator` and `content:encoded`
-- repeated tags, attributes, and CDATA
-
-The compatibility layer normalizes output into familiar feed and item objects while preserving the agentic feature set.
-
-## CLI
+## CLI Usage
 
 ```bash
 npx agentic-rss --feed https://news.ycombinator.com/rss
 ```
 
-Multiple feeds:
+Multiple feeds with caching:
 
 ```bash
 npx agentic-rss \
@@ -225,67 +157,46 @@ npx agentic-rss \
   --db ./data/rss-agent.db
 ```
 
-## MCP Tooling
+---
+
+## MCP Server
+
+Expose feed parsing as a Model Context Protocol tool to your AI assistants (like Claude Desktop or any MCP client):
 
 ```bash
-npx agentic-rss-mcp --feed https://news.ycombinator.com/rss
+npx agentic-rss-mcp
 ```
 
-## Parallelism
+### Supported Tools:
+1. `fetch_rss_feed`: Fetch, parse, and normalize feed items from a URL.
+2. `fetch_full_article`: Fetch the full text content of an article behind a link.
 
-Agentic RSS Parser does not currently run a swarm-style parallel orchestration layer on its own.
+---
 
-What it does support:
+## Development & Testing
 
-- you can call it multiple times from your own code in parallel when that makes sense
-- you can wrap it in an ADK workflow that uses parallel agents or parallel tool calls
-- you can manage concurrency at the orchestration layer instead of inside the parser
-- you can set `concurrency` on `runAgenticParser` to process multiple feeds at once
-
-What it does not do yet:
-
-- automatic swarm scheduling
-- distributed scraping coordination
-- cross-feed task planning
-
-## Development
+Since there are no production dependencies, development setup is instantaneous:
 
 ```bash
+# Install development dependencies (testing frameworks, etc.)
 npm install
+
+# Run the automated test suite
 npm test
 ```
 
-```bash
-pnpm install
-pnpm test
-```
+---
 
-## Package Health
+## Security & Robustness
 
-- pinned Node.js support is documented in [SUPPORT.md](./SUPPORT.md)
-- dependency updates should be reviewed before release
-- `npm audit` should stay clean before merging
-- release steps are documented in [PUBLISHING.md](./PUBLISHING.md)
-- pnpm supply-chain settings are enforced in [pnpm-workspace.yaml](./pnpm-workspace.yaml)
+- **XXE Prevention**: The parser ignores DOCTYPE and ENTITY declarations, rendering XML External Entity attacks impossible.
+- **Billion Laughs Prevention**: No XML entity expansion is performed, meaning recursive entity expansion DoS attacks are completely neutralized.
+- **Input Sanitization**: Automatically strips `<script>` tags from summaries and item content to mitigate Cross-Site Scripting (XSS).
+- **Strict Protocol Validation**: Rejects `file://`, `javascript://`, and `ftp://` links to prevent local file inclusion and server-side request forgery (SSRF).
+- **Stack-Overflow Protection**: Custom XML parser handles deeply nested XML nodes iteratively (using a state machine) rather than recursively.
 
-## Project Structure
+---
 
-- `src/core/parser.js`: XML parsing and normalization
-- `src/core/http.js`: redirect-aware feed fetching
-- `src/compat.js`: `Parser` compatibility surface
-- `src/parser.js`: agentic feed pipeline
-- `src/adapters/provider.js`: model provider adapters
-- `src/mcp/server.js`: MCP entrypoint
+## License
 
-## Security
-
-- only fetch trusted feed URLs
-- keep model-provider API keys out of source control
-- review custom XML feeds before processing them in production
-- see [SECURITY.md](./SECURITY.md) for vulnerability reporting
-
-## Contributing
-
-Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
-
-Please also review the [Code of Conduct](./CODE_OF_CONDUCT.md) before participating.
+MIT © Blue Carbons

@@ -9,63 +9,42 @@ We support the latest `main` branch and the most recent released version.
 If you discover a security issue, please do not open a public issue.
 
 Instead:
+- Contact the maintainers privately through the repository's security contact process.
+- Include a clear description of the issue, reproduction steps, and any relevant feed sample or payload.
 
-- contact the maintainers privately through the repository's security contact process
-- include a clear description of the issue
-- include reproduction steps if possible
-- include any relevant feed sample or payload, if safe to share
+---
 
-## Security Guidance
+## Security Architecture
 
-- only process feeds from sources you trust
-- prefer HTTPS feed URLs
-- keep API keys and tokens out of source control
-- review custom feed XML before processing untrusted content in production
-- validate feed URLs before use and reject non-HTTP protocols
-- keep MCP servers on least privilege
-- prefer local stdio MCP when possible over exposed remote transports
-- do not trust tool descriptions or tool names from unvetted MCP servers
-- treat feed content as untrusted input, especially when it can influence agent prompts
-- lock dependency versions with a committed lockfile
-- keep postinstall scripts disabled in CI
-- avoid exotic transitive dependencies
-- delay dependency updates with pnpm minimum release age
-- enforce trust policy checks with pnpm
+Agentic RSS Parser is built with a **zero-dependency** runtime architecture. This drastically reduces the package's attack surface and makes it naturally resilient against common supply-chain attacks.
 
-## Threat Model Notes
+### 1. Supply Chain & Dependency Security
+- **Zero Runtime Dependencies**: The package specifies `{}` under `dependencies` in `package.json`. There are no production transitive dependencies, eliminating risks of compromised downstream packages, unmaintained library bloat, and package-squatting.
+- **Strict devDependencies Checks**: Development-only tools (such as test runners and linters) are regularly checked for vulnerabilities using `npm audit`.
 
-### MITM
+### 2. Custom XML Parser Hardening
+The XML engine (`src/core/parser.js`) is written from scratch using a character-by-character scanner:
+- **No Entity Expansion**: The parser does not expand XML entities or process DTDs (Document Type Definitions). This guarantees complete immunity against **XML External Entity (XXE)** injections and **Billion Laughs (XML bomb)** denial-of-service attacks.
+- **Iteration over Recursion**: Parsing nested elements is handled iteratively rather than recursively. This protects the runtime from call-stack exhaustion (Stack Overflow DoS) even when parsing extremely deep XML documents.
+- **Graceful Error Handling**: Malformed or incomplete XML strings degrade gracefully without throwing fatal errors or causing process crashes.
 
-When fetching feeds over the network, a man-in-the-middle attacker could tamper with XML, inject malicious links, or alter the feed metadata.
+### 3. Cross-Site Scripting (XSS) Mitigation
+- Feed entries can contain rich HTML or `<script>` tags in their content fields. The parser's normalization routines strip dangerous tags (like `<script>` elements and script payloads) when compiling summaries/snippets.
+- Feed consumers should still treat all parsed content as untrusted input and apply appropriate sanitization/escaping before rendering in web browsers.
 
-Mitigations:
+### 4. HTTP & URL Sanitization
+- The HTTP retrieval layer validates URLs before initiating fetches.
+- **Protocol Allowlist**: Only `http:` and `https:` URLs are processed. System/file-level protocols (such as `file://`, `ftp://`, or `javascript://`) are immediately rejected to prevent **Server-Side Request Forgery (SSRF)** and **Local File Inclusion (LFI)**.
+- **Timeout Controls**: Request timeouts are strictly enforced by default to prevent hanging network calls from tying up process resources.
 
-- use HTTPS whenever possible
-- keep request timeouts enabled
-- only allow `http:` and `https:` URLs
-- avoid logging secrets or credentials from fetched content
+### 5. Model Context Protocol (MCP) Server Security
+- The built-in MCP server operates entirely over standard input/output (`stdio`) using a custom JSON-RPC parser.
+- **JSON-RPC Conformance**: The server enforces schema validation and strictly structured JSON envelopes. Invalid payloads or unknown procedures return standard JSON-RPC 2.0 error codes without exposing stack traces.
 
-### MCP Abuse
+---
 
-MCP is a powerful integration surface and can be abused through prompt injection, tool poisoning, insecure transport, or over-privileged tool access.
+## Deployment Best Practices
 
-Mitigations:
-
-- expose only the tools the agent actually needs
-- keep tool descriptions narrow and specific
-- validate all tool arguments before execution
-- avoid connecting untrusted remote MCP servers to privileged data sources
-- prefer explicit user approval for destructive or external side effects
-- apply authentication and authorization controls for any remote MCP deployment
-
-### Agent Orchestration
-
-If you embed this package inside an agent framework, the orchestrator should control concurrency and tool invocation. This package intentionally stays focused on feed retrieval, normalization, deduplication, and enrichment.
-
-## Dependency Updates
-
-We review dependency updates regularly and keep the published package audit-clean before release.
-
-## Disclosure
-
-We aim to acknowledge and address confirmed security issues promptly.
+- **API Key Management**: When utilizing LLM adapters, load API keys via environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) or secure secret managers. Never hardcode keys in source code.
+- **Least Privilege**: Run MCP servers and parser processes with the minimum OS privileges necessary.
+- **Feed Validation**: If allowing end-users to input feed URLs, enforce DNS/IP resolution filtering (e.g., preventing access to private local ranges like `127.0.0.1` or `192.168.x.x`) at the network layer.
