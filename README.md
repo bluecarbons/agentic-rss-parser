@@ -108,15 +108,20 @@ Ingest feeds, deduplicate items using SQLite, extract the full web article conte
 ```js
 import { runAgenticParser } from 'agentic-rss-parser';
 
-const results = await runAgenticParser({
+// runAgenticParser returns { results, feedErrors }
+const { results, feedErrors } = await runAgenticParser({
   feedUrls: ['https://news.ycombinator.com/rss'],
   dbPath: './data/rss-agent.db',
   fetchFullArticle: true,
   model: {
-    provider: 'openai', // 'openai' | 'anthropic' | 'local'
+    provider: 'openai', // 'openai' | 'anthropic' | 'local' | 'heuristic'
     model: 'gpt-4o-mini'
   }
 });
+
+if (feedErrors.length) {
+  console.error('Feed errors:', feedErrors);
+}
 
 for (const entry of results) {
   if (entry.analysis.decision === 'relevant') {
@@ -136,9 +141,17 @@ for (const entry of results) {
 - **Orchestration**: The agent framework (e.g., ADK) consumes these normalized, enriched JSON payloads to make decisions, run multi-agent workflows, or build memory stores.
 - **MCP Tool Support**: You can easily run this parser as an MCP Server that exposes its parsing capabilities directly to any MCP-compliant agent.
 
+The ADK integration example requires `@google/adk` as a peer dependency in your project:
+
+```bash
+npm install @google/adk
+# or
+pnpm add @google/adk
+```
+
 Check out the [examples/](./examples/) directory for integration code:
 - [examples/direct.mjs](./examples/direct.mjs): Minimal programmatic parsing.
-- [examples/adk-tool.mjs](./examples/adk-tool.mjs): Wrapping the parser as a Google ADK-compatible tool.
+- [examples/adk-real.mjs](./examples/adk-real.mjs): Wrapping the parser as a Google ADK-compatible tool.
 
 ---
 
@@ -191,7 +204,9 @@ npm test
 
 - **XXE Prevention**: The parser ignores DOCTYPE and ENTITY declarations, rendering XML External Entity attacks impossible.
 - **Billion Laughs Prevention**: No XML entity expansion is performed, meaning recursive entity expansion DoS attacks are completely neutralized.
-- **Input Sanitization**: Automatically strips `<script>` tags from summaries and item content to mitigate Cross-Site Scripting (XSS).
+- **Input Sanitization**: Automatically strips `<script>`, `<iframe>`, `<object>`, `<embed>`, and `<form>` tags from summaries and item content to mitigate Cross-Site Scripting (XSS).
+- **Prompt Injection Prevention**: Feed content is sanitized before LLM prompt interpolation — control characters and newlines are stripped to block role-boundary injection attacks.
+- **Response Size Cap**: Feed and LLM API responses are capped at 5 MB and 1 MB respectively before buffering, preventing out-of-memory attacks.
 - **Strict Protocol Validation**: Rejects `file://`, `javascript://`, and `ftp://` links to prevent local file inclusion and server-side request forgery (SSRF).
 - **Stack-Overflow Protection**: Custom XML parser handles deeply nested XML nodes iteratively (using a state machine) rather than recursively.
 
