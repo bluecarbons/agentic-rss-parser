@@ -8,16 +8,34 @@ const _require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Default DB path resolved relative to this file — CWD-independent.
-// Consistent with compat.js and mcp/server.js.
 const DEFAULT_DB_PATH = join(__dirname, '../data/rss-agent.db');
 
 function parseArgs(argv) {
   const args = { feeds: [], db: DEFAULT_DB_PATH, fetchFullArticle: false };
   for (let i = 2; i < argv.length; i += 1) {
     const current = argv[i];
-    if (current === '--feed') args.feeds.push(argv[++i]);
-    else if (current === '--db') args.db = argv[++i];
-    else if (current === '--fetch-full-article') args.fetchFullArticle = true;
+    if (current === '--feed') {
+      // CORRECTNESS: guard against a missing value (next token is another flag
+      // or end-of-args). Previously argv[++i] could silently capture a flag
+      // name as the feed URL, or resolve(undefined) as the db path.
+      const next = argv[i + 1];
+      if (!next || next.startsWith('--')) {
+        console.error('Error: --feed requires a URL argument');
+        process.exit(1);
+      }
+      args.feeds.push(next);
+      i += 1;
+    } else if (current === '--db') {
+      const next = argv[i + 1];
+      if (!next || next.startsWith('--')) {
+        console.error('Error: --db requires a path argument');
+        process.exit(1);
+      }
+      args.db = next;
+      i += 1;
+    } else if (current === '--fetch-full-article') {
+      args.fetchFullArticle = true;
+    }
   }
   return args;
 }
@@ -44,8 +62,7 @@ if (feedErrors.length) {
   for (const { feedUrl, error } of feedErrors) {
     console.error(`[error] ${feedUrl}: ${error}`);
   }
-  // Non-zero exit when every feed failed; partial success still exits 0
-  // so callers can process the results that did succeed.
+  // Non-zero exit when every feed failed; partial success still exits 0.
   if (!results.length) {
     process.exitCode = 1;
   }

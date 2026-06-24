@@ -4,9 +4,14 @@ const require = createRequire(import.meta.url);
 
 // FIX: read version from package.json via createRequire so the User-Agent
 // string never drifts from the published package version.
-// Previously hardcoded to '1.0.1' — would have stayed wrong forever.
 const { version: PKG_VERSION } = require('../../package.json');
 const DEFAULT_USER_AGENT = `agentic-rss-parser/${PKG_VERSION}`;
+
+// SECURITY: cap response body at 5 MB before buffering into memory.
+// Prevents OOM when a malicious or misconfigured server returns a multi-MB
+// payload in response to a feed fetch. 5 MB is well above any real-world
+// RSS/Atom feed; legitimate feeds are typically < 500 KB.
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 export async function fetchTextWithRedirects(url, options = {}) {
   assertHttpUrl(url);
@@ -52,7 +57,25 @@ export async function fetchTextWithRedirects(url, options = {}) {
         throw new Error(`Request failed with status ${response.status}`);
       }
 
-      return await response.text();
+      // SECURITY: enforce body size cap before buffering.
+      // Check Content-Length header first (fast path), then re-check after
+      // reading the full body (covers chunked/streaming responses that omit
+      // Content-Length).
+      const contentLength = Number(response.headers.get('content-length'));
+      if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
+        throw new Error(
+          `Feed response too large: ${contentLength} bytes (max ${MAX_RESPONSE_BYTES})`
+        );
+      }
+
+      const text = await response.text();
+      if (text.length > MAX_RESPONSE_BYTES) {
+        throw new Error(
+          `Feed response body too large: ${text.length} chars (max ${MAX_RESPONSE_BYTES})`
+        );
+      }
+
+      return text;
     } finally {
       clearTimeout(timeoutId);
     }

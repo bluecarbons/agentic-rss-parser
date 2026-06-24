@@ -17,6 +17,11 @@ const { version: PKG_VERSION } = require('../../package.json');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DB_PATH = join(__dirname, '../../data/rss-agent.db');
 
+// SECURITY: allowlist of provider values accepted from untrusted MCP callers.
+// Validated in handleToolCall before being passed to createAnalyzer so an
+// attacker cannot supply arbitrary strings into internal provider dispatch.
+const ALLOWED_PROVIDERS = new Set(['heuristic', 'openai', 'anthropic', 'local']);
+
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
@@ -105,8 +110,6 @@ rl.on('line', async (line) => {
         const result = await handleToolCall(name, args);
         sendResponse(requestId, result);
       } catch (err) {
-        // Preserve -32602 validation errors from handleToolCall;
-        // all other throws are internal errors (-32603).
         const code = err.code === -32602 ? -32602 : -32603;
         sendError(requestId, code, err.message);
       }
@@ -117,7 +120,7 @@ rl.on('line', async (line) => {
       sendError(requestId, -32601, 'Method not found');
     }
   } catch {
-    // JSON-RPC spec §5: parse errors use id: null (not undefined).
+    // JSON-RPC spec §5: parse errors use id: null.
     sendError(null, -32700, 'Parse error');
   }
 });
@@ -140,9 +143,25 @@ async function handleToolCall(name, args) {
         { code: -32602 }
       );
     }
+
+    // SECURITY: validate provider against allowlist before passing to
+    // createAnalyzer — prevents untrusted MCP callers from supplying
+    // arbitrary strings into internal dispatch logic.
+    const rawProvider = args.provider;
+    if (rawProvider !== undefined && !ALLOWED_PROVIDERS.has(rawProvider)) {
+      throw Object.assign(
+        new Error(
+          `Invalid params: provider must be one of: ${[...ALLOWED_PROVIDERS].join(', ')}`
+        ),
+        { code: -32602 }
+      );
+    }
+
     const url = args.url.trim();
-    const limit = Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 10;
-    const provider = args.provider || 'heuristic';
+    // CORRECTNESS: guard limit against NaN, non-integer, and <= 0 values.
+    const limit =
+      Number.isInteger(args.limit) && args.limit > 0 && args.limit <= 1000 ? args.limit : 10;
+    const provider = rawProvider || 'heuristic';
 
     const analyzer = await createAnalyzer({ provider });
     const { results } = await runAgenticParser({

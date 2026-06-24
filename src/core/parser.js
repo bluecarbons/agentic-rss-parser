@@ -43,9 +43,6 @@ export function parseXml(xml) {
     }
 
     // CDATA sections: <![CDATA[ ... ]]>
-    // The closing ]]> is searched from index+9 onward. We do a simple
-    // forward indexOf — ]]> cannot appear inside valid CDATA content, and
-    // real-world feeds that embed ]]> inside CDATA are already malformed.
     if (xml.startsWith('<![CDATA[', index)) {
       const closeCdata = xml.indexOf(']]>', index + 9);
       const text = closeCdata === -1 ? xml.slice(index + 9) : xml.slice(index + 9, closeCdata);
@@ -74,10 +71,6 @@ export function parseXml(xml) {
     index = closeTagBracket + 1;
 
     if (tagStr.startsWith('/')) {
-      // Walk the stack backwards to find the nearest matching open tag.
-      // Real-world RSS/Atom feeds routinely contain mismatched or unclosed
-      // tags (e.g. <br> without </br>, orphaned </p>). Silently skipping
-      // unmatched close tags prevents runaway nesting.
       const name = tagStr.slice(1).trim();
       let found = -1;
       for (let i = stack.length - 1; i >= 1; i--) {
@@ -102,9 +95,6 @@ export function parseXml(xml) {
 
       const node = { '#name': name, '#children': [] };
 
-      // Capture both double- and single-quoted attribute values, then
-      // unescape entities so title="She &quot;rules&quot;" is stored as:
-      // She "rules" — not truncated at the &quot;.
       const attrRegex = /([a-zA-Z0-9_:-]+)="([^"]*)"|([a-zA-Z0-9_:-]+)='([^']*)'/g;
       let attrMatch;
       while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
@@ -168,9 +158,12 @@ function asArray(value) {
 
 /**
  * Strip HTML tags from a string to produce a plain-text snippet.
- * Also removes <script>, <style>, <iframe>, and <object> blocks
- * entirely (including their contents) to prevent XSS vectors in any
- * downstream context that renders contentSnippet as HTML.
+ *
+ * SECURITY: removes entire contents of executable/embeddable tag blocks
+ * (script, style, iframe, object, embed, form) to prevent XSS vectors
+ * in any downstream context that renders contentSnippet as HTML.
+ * Inline event handlers (onerror=, onclick=, etc.) are neutralised by
+ * removing all remaining tags after the block removal pass.
  */
 function stripHtml(html = '') {
   return String(html)
@@ -178,10 +171,24 @@ function stripHtml(html = '') {
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, ' ')
     .replace(/<object[\s\S]*?<\/object>/gi, ' ')
+    .replace(/<embed[\s\S]*?<\/embed>/gi, ' ')
+    .replace(/<form[\s\S]*?<\/form>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Attempt to normalise a raw date string to ISO 8601.
+ * Returns the original string if Date parsing fails, null if input is empty.
+ * This prevents raw pubDate strings like "Mon, 23 Jun 2026 12:00:00 +0000"
+ * from leaking into isoDate — callers expect ISO 8601 or null.
+ */
+function safeIsoDate(raw) {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? raw : d.toISOString();
 }
 
 function textValue(value) {
@@ -236,13 +243,21 @@ function getLinkValue(node) {
 }
 
 function normalizeItem(itemNode, options) {
+  const rawDate = textValue(itemNode.pubDate || itemNode.updated || itemNode.published);
+
   const normalized = {
     title: textValue(itemNode.title),
     link: getLinkValue(itemNode.link),
-    pubDate: textValue(itemNode.pubDate || itemNode.updated || itemNode.published),
-    isoDate: textValue(itemNode.pubDate || itemNode.updated || itemNode.published),
+    pubDate: rawDate,
+    // CORRECTNESS: isoDate must be an ISO 8601 string (or null), not the raw
+    // RSS date string. safeIsoDate() parses via Date() and falls back to the
+    // raw string only when parsing fails (non-standard feed date formats).
+    isoDate: safeIsoDate(rawDate),
     guid: textValue(itemNode.guid || itemNode.id),
     content: textValue(itemNode['content:encoded'] || itemNode.content || itemNode.summary || itemNode.description),
+    // COHERENCE: contentSnippet is set once here from the richest available
+    // source and is NOT overwritten below. The previous code set it here
+    // then silently clobbered it 10 lines later.
     contentSnippet: stripHtml(textValue(itemNode.description || itemNode.summary || itemNode.content || itemNode['content:encoded'])),
     categories: asArray(itemNode.category ?? itemNode.categories).map(textValue).filter(Boolean)
   };
@@ -257,9 +272,6 @@ function normalizeItem(itemNode, options) {
     const creator = itemNode.creator || itemNode.author || itemNode['dc:creator'];
     if (creator) normalized.creator = textValue(creator);
   }
-
-  const contentSnippet = normalized.contentSnippet || stripHtml(normalized.content || '');
-  normalized.contentSnippet = contentSnippet;
 
   return normalized;
 }

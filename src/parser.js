@@ -7,9 +7,16 @@ import { fetchTextWithRedirects } from './core/http.js';
 
 function normalizeItem(feedUrl, item) {
   const link = item.link || '';
-  // Fallback chain: link → guid/id (Atom canonical) → title → pubDate → random.
-  // Prevents SHA collisions for Atom entries that have no link or title.
-  const idSource = link || item.guid || item.title || item.pubDate || crypto.randomUUID();
+
+  // CORRECTNESS — deduplication stability fix:
+  // The previous fallback chain ended with crypto.randomUUID(), meaning items
+  // with no link/guid/title/pubDate received a fresh UUID every run. This
+  // silently defeated deduplication — the same item was re-processed on every
+  // execution. Replacing UUID with an empty-string sentinel produces a stable
+  // (if non-unique) hash tied to feedUrl alone, which at least makes the ID
+  // deterministic. Callers that need uniqueness per blank item can extend the
+  // idSource with an index or sequence number.
+  const idSource = link || item.guid || item.title || item.pubDate || '';
   const id = crypto
     .createHash('sha256')
     .update(`${feedUrl}:${idSource}`)
@@ -101,10 +108,6 @@ function normalizeConcurrency(concurrency) {
  * Run `worker` over every element in `items` with at most `limit`
  * concurrent workers. Returns void — results are accumulated via
  * the worker's own side-effects (closure over outer `results` array).
- *
- * CORRECTNESS: the inner `index` counter is safe in single-threaded JS
- * because each worker yields at `await worker(...)`, and index is captured
- * before the yield. No two workers ever receive the same index.
  */
 async function mapWithConcurrency(items, limit, worker) {
   let index = 0;
