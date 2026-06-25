@@ -37,7 +37,18 @@ export const AnalysisSchema = {
   }
 };
 
-const HEURISTIC_SIGNALS = [
+/**
+ * Built-in heuristic signals — developer/tech-tool focused.
+ *
+ * These are intentionally general so the zero-config experience is useful
+ * out of the box for technical feeds. Users should override via:
+ *
+ *   signals:      ['your', 'domain', 'keywords']  // replaces defaults entirely
+ *   extraSignals: ['funding', 'launch']            // appended to defaults
+ *
+ * in their ParserOptions / AgenticParserConfig.
+ */
+export const DEFAULT_HEURISTIC_SIGNALS = [
   'release',
   'security',
   'vulnerability',
@@ -53,6 +64,32 @@ const HEURISTIC_SIGNALS = [
 ];
 
 /**
+ * Resolve the effective signal list from user-supplied options.
+ *
+ * Priority (highest to lowest):
+ *   1. options.signals      — full replacement array
+ *   2. options.extraSignals — appended to DEFAULT_HEURISTIC_SIGNALS
+ *   3. DEFAULT_HEURISTIC_SIGNALS — used as-is when neither is supplied
+ *
+ * Deduplication and lowercasing are applied so the caller never needs
+ * to worry about case or duplicate entries.
+ *
+ * @param {{ signals?: string[], extraSignals?: string[] }} [options]
+ * @returns {string[]}
+ */
+export function resolveSignals(options = {}) {
+  if (Array.isArray(options.signals) && options.signals.length > 0) {
+    return [...new Set(options.signals.map((s) => String(s).toLowerCase().trim()).filter(Boolean))];
+  }
+  const base = [...DEFAULT_HEURISTIC_SIGNALS];
+  if (Array.isArray(options.extraSignals) && options.extraSignals.length > 0) {
+    const extra = options.extraSignals.map((s) => String(s).toLowerCase().trim()).filter(Boolean);
+    return [...new Set([...base, ...extra])];
+  }
+  return base;
+}
+
+/**
  * Heuristic signal-based analyser — no LLM required.
  *
  * Exported so adapters/provider.js can delegate to this as the single
@@ -60,16 +97,19 @@ const HEURISTIC_SIGNALS = [
  *
  * @param {{ title?: string, contentSnippet?: string }} item
  * @param {string} [context]
+ * @param {{ signals?: string[], extraSignals?: string[] }} [options]
  * @returns {{ decision: 'relevant'|'ignore', confidence: number, summary: string, impact: string, actionItems: string[], tags: string[] }}
  */
-export function heuristicAnalyze(item, context) {
+export function heuristicAnalyze(item, context, options = {}) {
+  const signals = resolveSignals(options);
   const text = `${item.title ?? ''}\n${item.contentSnippet ?? ''}\n${context ?? ''}`.toLowerCase();
-  const score = HEURISTIC_SIGNALS.reduce(
+  const score = signals.reduce(
     (total, signal) => total + (text.includes(signal) ? 1 : 0),
     0
   );
+  const threshold = options.threshold ?? 3;
   const confidence = Math.min(95, 35 + score * 10);
-  const decision = score >= 3 ? 'relevant' : 'ignore';
+  const decision = score >= threshold ? 'relevant' : 'ignore';
   return validateAnalysis({
     decision,
     confidence,
@@ -85,7 +125,7 @@ export function heuristicAnalyze(item, context) {
       decision === 'relevant'
         ? ['Review the source article.', 'Share with the relevant team if actionable.']
         : [],
-    tags: [...new Set(HEURISTIC_SIGNALS.filter((signal) => text.includes(signal)).slice(0, 5))]
+    tags: [...new Set(signals.filter((signal) => text.includes(signal)).slice(0, 5))]
   });
 }
 
@@ -105,7 +145,7 @@ export async function analyzeFeedItem(item, options = {}) {
     return validateAnalysis(result);
   }
 
-  return heuristicAnalyze(item, context);
+  return heuristicAnalyze(item, context, options);
 }
 
 export { validateAnalysis };

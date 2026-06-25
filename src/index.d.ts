@@ -20,6 +20,18 @@ export interface ParserOptions {
   /** Fallback RSS version used when the feed does not declare one. */
   defaultRSS?: number | string;
   headers?: Record<string, string>;
+  /**
+   * Override the User-Agent header sent with every feed request.
+   * Useful when a feed returns 403 to the default `agentic-rss-parser/<version>` UA.
+   * Equivalent to passing `headers: { 'user-agent': '...' }`; if both are set,
+   * `headers['user-agent']` takes precedence.
+   *
+   * @example
+   * const parser = new Parser({
+   *   userAgent: 'Mozilla/5.0 (compatible; MyApp/1.0)'
+   * });
+   */
+  userAgent?: string;
   /** Request timeout in milliseconds (default: 10 000). */
   timeout?: number;
   /** Maximum number of HTTP redirects to follow (default: 5). */
@@ -86,6 +98,28 @@ export interface AnalyzerConfig {
   model?: string;
   apiKey?: string;
   baseURL?: string;
+  /**
+   * Full replacement signal list for the heuristic provider.
+   * When set, DEFAULT_HEURISTIC_SIGNALS are ignored entirely.
+   *
+   * @example
+   * // Startup-focused signals — completely replaces the dev-tool defaults
+   * signals: ['funding', 'series', 'yc', 'ipo', 'acquisition', 'launch', 'ai', 'b2b']
+   */
+  signals?: string[];
+  /**
+   * Extra signals appended to DEFAULT_HEURISTIC_SIGNALS.
+   * Use instead of `signals` when you want to extend the defaults, not replace them.
+   *
+   * @example
+   * extraSignals: ['funding', 'acquisition', 'launch']
+   */
+  extraSignals?: string[];
+  /**
+   * Minimum number of matched signals required to mark an item 'relevant'.
+   * Defaults to 3. Reduce to 1-2 for broader recall; increase to 4-5 for precision.
+   */
+  threshold?: number;
 }
 
 export interface AgenticParserConfig {
@@ -100,7 +134,7 @@ export interface AgenticParserConfig {
 }
 
 export interface ParseFeedConfig {
-  /** Override the default DB path (resolved relative to compat.js). */
+  /** Override the default DB path (resolved to CWD/data/rss-agent.db when installed as a package). */
   dbPath?: string;
   fetchFullArticle?: boolean;
   concurrency?: number;
@@ -151,17 +185,43 @@ export function analyzeFeedItem(
   options?: {
     fetchFullArticle?: boolean;
     analyzer?: (input: { item: ParserFeedItem; context: string }) => unknown;
+    signals?: string[];
+    extraSignals?: string[];
+    threshold?: number;
   }
 ): Promise<AnalysisResult>;
 
 /**
  * Heuristic signal-based analyser — no LLM or API key required.
  * Single source of truth; also used internally by the heuristic provider.
+ *
+ * @param item    - Feed item to analyse.
+ * @param context - Optional expanded article text.
+ * @param options - Signal customization: `signals` (replace), `extraSignals` (append), `threshold`.
  */
 export function heuristicAnalyze(
   item: ParserFeedItem,
-  context?: string
+  context?: string,
+  options?: {
+    signals?: string[];
+    extraSignals?: string[];
+    threshold?: number;
+  }
 ): AnalysisResult;
+
+/**
+ * The default heuristic signal list (dev/tech-tool focused).
+ * Export so callers can inspect it before deciding to extend or replace it.
+ */
+export const DEFAULT_HEURISTIC_SIGNALS: string[];
+
+/**
+ * Resolve the effective signal list from user-supplied options.
+ * Priority: options.signals > DEFAULT + options.extraSignals > DEFAULT.
+ */
+export function resolveSignals(
+  options?: { signals?: string[]; extraSignals?: string[] }
+): string[];
 
 export function fetchFullArticle(url: string): Promise<string>;
 
@@ -197,7 +257,6 @@ export function createAnalyzer(
 
 /**
  * Types for the MCP server entry-point.
- * Full declarations live in src/mcp/server.d.ts.
  * Import via: import type { McpTool } from 'agentic-rss-parser/mcp'
  */
 export * as McpServer from './mcp/server.js';

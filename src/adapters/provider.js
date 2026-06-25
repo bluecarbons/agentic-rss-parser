@@ -50,6 +50,9 @@ function sanitizeForPrompt(str, maxLen) {
  * @param {string} [config.model]
  * @param {string} [config.apiKey]
  * @param {string} [config.baseURL]
+ * @param {string[]} [config.signals]       — full signal replacement for heuristic provider
+ * @param {string[]} [config.extraSignals]  — signals appended to defaults for heuristic provider
+ * @param {number}   [config.threshold]     — minimum signal score to mark an item 'relevant' (default: 3)
  */
 export async function createAnalyzer(config = {}) {
   const provider = config.provider ?? 'heuristic';
@@ -66,7 +69,14 @@ export async function createAnalyzer(config = {}) {
   }
 
   if (provider === 'heuristic') {
-    return async ({ item, context }) => heuristicAnalyze(item, context);
+    // Pass through signals/extraSignals/threshold so the caller can tune
+    // relevance without needing an LLM API key.
+    const heuristicOpts = {
+      signals: config.signals,
+      extraSignals: config.extraSignals,
+      threshold: config.threshold
+    };
+    return async ({ item, context }) => heuristicAnalyze(item, context, heuristicOpts);
   }
 
   return async ({ item, context }) => {
@@ -196,7 +206,7 @@ Only output valid JSON.`;
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: modelId || 'claude-3-5-sonnet-latest',
+          model: modelId || 'claude-sonnet-4-5',
           max_tokens: 1024,
           system: anthropicSystemPrompt,
           messages: [{ role: 'user', content: userPrompt }]

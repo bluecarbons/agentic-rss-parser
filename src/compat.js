@@ -6,11 +6,30 @@ import { parseFeedXml } from './core/parser.js';
 import { fetchTextWithRedirects } from './core/http.js';
 
 /**
- * Resolve the default DB path relative to this file so it works correctly
- * regardless of the process CWD (12-factor, MCP hosts, monorepos, etc.).
+ * Default DB path strategy (two-tier):
+ *
+ *   1. process.cwd()/data/rss-agent.db  — when installed as a package
+ *      (node_modules/agentic-rss-parser/...), the CWD is the consumer's
+ *      project root, so the DB lands next to their own source files.
+ *
+ *   2. <package-root>/data/rss-agent.db  — fallback when running directly
+ *      from a clone of this repo (CWD === package root).
+ *
+ * In both cases this beats the old module-relative path which could land
+ * inside node_modules when the package is installed.
+ *
+ * Users can always override via config.dbPath in parseFeed() or by passing
+ * dbPath directly to runAgenticParser().
  */
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_DB_PATH = join(__dirname, '../data/rss-agent.db');
+const PACKAGE_ROOT = join(__dirname, '..');
+const CWD = process.cwd();
+// Use CWD-relative path unless we are already inside the package root
+// (i.e. running directly from a repo clone). Detect via simple prefix check.
+const DEFAULT_DB_PATH =
+  CWD === PACKAGE_ROOT || CWD.startsWith(PACKAGE_ROOT + '/')
+    ? join(PACKAGE_ROOT, 'data', 'rss-agent.db')
+    : join(CWD, 'data', 'rss-agent.db');
 
 const DEFAULT_OPTIONS = {
   normalize: true,
