@@ -3,7 +3,13 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
----
+--- 
+
+## [1.2.1] — 2026-06-27
+
+### Fixed
+
+- README provider examples now use explicit `apiKey` configuration and remove stale env-var wording.
 
 ## [1.2.0] — 2026-06-25
 

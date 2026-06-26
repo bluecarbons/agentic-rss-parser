@@ -192,8 +192,8 @@ const { results, feedErrors } = await runAgenticParser({
   fetchFullArticle: true,
   model: {
     provider: 'anthropic', // 'openai' | 'anthropic' | 'local' | 'heuristic'
-    model: 'claude-sonnet-4-5'
-    // apiKey: 'sk-ant-...'  or set ANTHROPIC_API_KEY env var
+    model: 'claude-sonnet-4-5',
+    apiKey: 'sk-ant-...' // pass explicitly for provider-backed analysis
   }
 });
 
@@ -332,7 +332,7 @@ Returns `{ results: Array<{ item, analysis }>, feedErrors: FeedError[] }`.
 | `concurrency` | `number` | `1` | Max parallel feed workers (max 16) |
 | `model.provider` | `string` | `'heuristic'` | `'heuristic'` \| `'openai'` \| `'anthropic'` \| `'local'` |
 | `model.model` | `string` | provider default | Model ID string |
-| `model.apiKey` | `string` | env var | Override API key |
+| `model.apiKey` | `string` | required for `openai`/`anthropic` | Override API key |
 | `model.signals` | `string[]` | — | Replace default signals (**new in v1.2.0**) |
 | `model.extraSignals` | `string[]` | — | Extend default signals (**new in v1.2.0**) |
 | `model.threshold` | `number` | `3` | Signal score needed to mark 'relevant' (**new in v1.2.0**) |
