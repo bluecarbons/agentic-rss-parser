@@ -52,7 +52,7 @@ jobs:
         run: pnpm audit --audit-level=high
 
       - name: Dry-run pack (verify publishable artefact)
-        run: pnpm pack --dry-run
+        run: npm pack --dry-run
 
   # ──────────────────────────────────────────────────────────────────
   # Publish: only runs if every test matrix cell passes.

@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 --- 
 
+## [1.2.4] — 2026-06-27
+
+### Fixed
+
+- GitHub Actions pack verification now uses a supported dry-run command.
+
 ## [1.2.3] — 2026-06-27
 
 ### Fixed
