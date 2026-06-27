@@ -5,6 +5,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 --- 
 
+## [1.3.2] — 2026-06-27
+
+### Fixed
+
+- Anthropic response parsing now tolerates fenced JSON output.
+- Security docs now clarify the deployment boundary for untrusted URLs and the default heuristic threshold behavior.
+
 ## [1.3.1] — 2026-06-27
 
 ### Fixed

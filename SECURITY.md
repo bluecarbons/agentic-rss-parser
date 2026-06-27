@@ -33,6 +33,7 @@ The custom XML engine (`src/core/parser.js`) is a non-recursive, character-by-ch
 - **Timeout** — all requests time out after 10 seconds by default (configurable via `options.timeout`).
 - **Response size cap** — feed responses are hard-capped at 5 MB. The cap is checked against `Content-Length` (fast path) and re-checked after buffering chunked responses, preventing OOM via large or malicious payloads.
 - **User-Agent override** — the `userAgent` option (v1.2.0+) allows callers to override the default UA. This is intentional and documented; it is not a security bypass.
+- **Deployment note** — for multi-tenant or user-supplied URL workflows, place this library behind your own proxy or allowlist layer. The package validates schemes and common private/loopback targets, but DNS-rebinding defenses belong at the deployment boundary where you control DNS resolution and egress policy.
 
 ### LLM Prompt Injection
 
@@ -67,6 +68,10 @@ This mitigates XSS if `contentSnippet` is rendered as HTML by a downstream consu
 - **Intentional dependency surface** — the package keeps its direct dependencies small and explicit so reviewers can audit the exact runtime surface. It is not dependency-free.
 - **`socket.dev` findings** — outbound network calls and provider endpoint strings are intentional and documented. The code avoids direct environment-variable reads in the provider layer.
 - **Network access is explicit** — feed fetching and optional provider analysis require outbound HTTP requests by design. These are restricted to documented HTTP/HTTPS endpoints, validated before use, and capped for size and redirects.
+
+### Heuristic Thresholds
+
+- **Threshold guidance** — short feeds with little or no description text may need `fetchFullArticle: true` or a lower `threshold` to avoid over-filtering. The default threshold is intentionally conservative for technical feeds.
 
 ---
 

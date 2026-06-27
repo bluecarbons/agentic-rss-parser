@@ -215,7 +215,11 @@ Only output valid JSON.`;
       const rawText = resData.content[0].text;
       const jsonMatch = /<json>([\s\S]*?)<\/json>/.exec(rawText);
       const jsonStr = jsonMatch ? jsonMatch[1] : rawText;
-      const parsedResult = JSON.parse(jsonStr.trim());
+      const parsedResultText = jsonStr
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/, '')
+        .trim();
+      const parsedResult = JSON.parse(parsedResultText);
       return AnalysisSchema.parse(parsedResult);
     }
 
