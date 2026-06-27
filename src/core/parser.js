@@ -181,14 +181,13 @@ function stripHtml(html = '') {
 
 /**
  * Attempt to normalise a raw date string to ISO 8601.
- * Returns the original string if Date parsing fails, null if input is empty.
- * This prevents raw pubDate strings like "Mon, 23 Jun 2026 12:00:00 +0000"
- * from leaking into isoDate — callers expect ISO 8601 or null.
+ * Returns null if parsing fails or if input is empty.
+ * Callers expect isoDate to be either ISO 8601 or null.
  */
 function safeIsoDate(raw) {
   if (!raw) return null;
   const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? raw : d.toISOString();
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 function textValue(value) {
