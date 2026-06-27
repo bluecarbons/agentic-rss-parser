@@ -72,6 +72,84 @@ export function createStorage(dbPath) {
         );
     },
 
+    /**
+     * Query stored analyses with optional filtering.
+     *
+     * @param {object} [opts]
+     * @param {string}  [opts.feedUrl]   - Filter to a specific feed URL.
+     * @param {string}  [opts.decision]  - Filter by decision: 'relevant' | 'ignore'.
+     * @param {number}  [opts.limit=50]  - Maximum rows to return (max 1000).
+     * @param {number}  [opts.offset=0]  - Pagination offset.
+     * @returns {Array<object>} Array of analysis rows with parsed JSON fields.
+     */
+    getAnalyses(opts = {}) {
+      const limit = Math.min(
+        Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : 50,
+        1000
+      );
+      const offset = Number.isInteger(opts.offset) && opts.offset >= 0 ? opts.offset : 0;
+
+      let sql = `
+        SELECT
+          a.id, a.item_id, a.decision, a.confidence,
+          a.summary, a.impact, a.action_items, a.tags, a.created_at,
+          p.feed_url, p.title, p.link, p.published_at, p.processed_at
+        FROM analyses a
+        JOIN processed_items p ON p.id = a.item_id
+        WHERE 1=1
+      `;
+      const params = [];
+
+      if (opts.feedUrl) {
+        sql += ' AND p.feed_url = ?';
+        params.push(opts.feedUrl);
+      }
+      if (opts.decision === 'relevant' || opts.decision === 'ignore') {
+        sql += ' AND a.decision = ?';
+        params.push(opts.decision);
+      }
+
+      sql += ' ORDER BY a.created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+
+      return db.prepare(sql).all(...params).map((row) => ({
+        ...row,
+        actionItems: JSON.parse(row.action_items),
+        tags: JSON.parse(row.tags)
+      }));
+    },
+
+    /**
+     * Prune processed_items and analyses older than `ttlDays` days.
+     * Useful for long-running deployments to prevent unbounded SQLite growth.
+     *
+     * @param {number} ttlDays - Number of days to retain rows (must be > 0).
+     * @returns {{ deletedItems: number, deletedAnalyses: number }}
+     */
+    pruneOlderThan(ttlDays) {
+      if (typeof ttlDays !== 'number' || ttlDays <= 0) {
+        throw new TypeError('pruneOlderThan: ttlDays must be a positive number');
+      }
+      // Delete analyses whose parent processed_item is older than the TTL.
+      const deletedAnalyses = db
+        .prepare(
+          `DELETE FROM analyses WHERE item_id IN (
+             SELECT id FROM processed_items
+             WHERE processed_at < datetime('now', ? || ' days')
+           )`
+        )
+        .run(`-${Math.trunc(ttlDays)}`).changes;
+
+      const deletedItems = db
+        .prepare(
+          `DELETE FROM processed_items
+           WHERE processed_at < datetime('now', ? || ' days')`
+        )
+        .run(`-${Math.trunc(ttlDays)}`).changes;
+
+      return { deletedItems, deletedAnalyses };
+    },
+
     close() {
       db.close();
     }

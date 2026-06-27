@@ -10,10 +10,25 @@ import pkg from '../../package.json' with { type: 'json' };
 // Version read from package.json — never hardcoded.
 const { version: PKG_VERSION } = pkg;
 
-// DB path resolved relative to this file so the server works correctly
-// regardless of CWD when launched by Claude Desktop, Cursor, or any MCP host.
+// DB path — two-tier strategy matching compat.js:
+//
+//   1. process.cwd()/data/rss-agent.db — when installed as a package
+//      (node_modules/agentic-rss-parser/...) the CWD is the consumer's
+//      project root, so the DB lands next to their own source files.
+//
+//   2. <package-root>/data/rss-agent.db — fallback when running directly
+//      from a clone of this repo (CWD === package root).
+//
+// This replaces the previous module-relative path which resolved to inside
+// node_modules when the package was installed, making the DB invisible to
+// consumers and surprising to inspect.
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_DB_PATH = join(__dirname, '../../data/rss-agent.db');
+const PACKAGE_ROOT = join(__dirname, '../..');
+const CWD = process.cwd();
+const DEFAULT_DB_PATH =
+  CWD === PACKAGE_ROOT || CWD.startsWith(PACKAGE_ROOT + '/')
+    ? join(PACKAGE_ROOT, 'data', 'rss-agent.db')
+    : join(CWD, 'data', 'rss-agent.db');
 
 // SECURITY: allowlist of provider values accepted from untrusted MCP callers.
 // Validated in handleToolCall before being passed to createAnalyzer so an

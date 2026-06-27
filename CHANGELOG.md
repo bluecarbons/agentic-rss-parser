@@ -5,7 +5,34 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 --- 
 
-## [1.2.6] — 2026-06-27
+## [1.3.0] — 2026-06-27
+
+### Security
+
+- **SSRF prevention via private IP block** (`src/core/http.js`) — `assertHttpUrl()` now rejects requests to RFC-1918 private ranges (10.x, 172.16–31.x, 192.168.x), loopback (127.x, localhost, ::1), link-local / AWS metadata (169.254.x), carrier-grade NAT (100.64–127.x), and IPv6 ULA ranges (fc00::/7, fd00::/8). Previously only the URL scheme was validated, leaving redirect-based SSRF possible (e.g. a crafted feed redirecting to `http://169.254.169.254/latest/meta-data`).
+- **Signal output sanitization** (`src/agent.js`) — `resolveSignals()` now strips non-alphanumeric characters (except hyphens, underscores, spaces) from user-supplied signal strings before they reach the `tags` output array and SQLite storage. Previously strings like `<script>` or `DROP TABLE` passed through as-is.
+- **Unified XSS stripping in `fetch-article.js`** — `fetchFullArticle()` now strips `<iframe>`, `<object>`, `<embed>`, and `<form>` blocks in addition to `<script>` and `<style>`. Previously these tags were left intact, posing an XSS risk if article text was rendered as HTML downstream. The stripping now matches `core/parser.js` exactly.
+
+### Added
+
+- **Retry with exponential backoff** (`src/core/http.js`) — `fetchTextWithRedirects()` now retries automatically on 429 Too Many Requests and 5xx transient errors (up to 2 retries by default, configurable via `options.retries`). Respects the `Retry-After` response header when present. Network-level errors (DNS failure, connection reset, timeout) are also retried.
+- **ETag / If-Modified-Since conditional GET support** (`src/core/http.js`) — `fetchTextWithRedirects()` now accepts `options.etag` and `options.lastModified` and sends `If-None-Match` / `If-Modified-Since` request headers. Returns `null` on a `304 Not Modified` response so callers can skip re-processing unchanged feeds. The return type is now `{ text, etag, lastModified } | null` (previously `string`).
+- **Storage read API** (`src/storage.js`) — `createStorage()` now exposes two new methods:
+  - `getAnalyses(opts?)` — query stored analyses with optional `feedUrl`, `decision`, `limit`, and `offset` filters. Returns joined rows from `analyses` + `processed_items` with JSON fields parsed.
+  - `pruneOlderThan(ttlDays)` — delete processed items and analyses older than N days. Returns `{ deletedItems, deletedAnalyses }` counts. Prevents unbounded SQLite growth in long-running deployments.
+- **LangChain.js integration example** (`examples/langchain-js.mjs`) — `DynamicStructuredTool` wrappers for `fetch_rss_feed` and `fetch_full_article`, wired into a `createToolCallingAgent` with `ChatAnthropic`. Completes SDK coverage alongside the existing ADK, Anthropic SDK, OpenAI Agents SDK, and Vercel AI SDK examples.
+- **Examples shipped in npm tarball** — `examples/` added to `package.json` `files[]`. Previously examples were only available on GitHub; npm install users had no visibility into the SDK integration patterns.
+
+### Fixed
+
+- **MCP server `DEFAULT_DB_PATH`** (`src/mcp/server.js`) — the database now resolves using the same two-tier CWD strategy as `compat.js`: `process.cwd()/data/rss-agent.db` when installed as a package, falling back to the package root when running from a repo clone. Previously the MCP server used a module-relative path that resolved inside `node_modules` when installed.
+- **Default Anthropic model** (`src/adapters/provider.js`, `examples/anthropic-sdk.mjs`, `examples/vercel-ai-sdk.mjs`) — updated from `claude-sonnet-4-5` to `claude-sonnet-4-6`.
+
+### Breaking
+
+- `fetchTextWithRedirects()` return type changed from `Promise<string>` to `Promise<{ text: string, etag: string|null, lastModified: string|null } | null>`. Internal callers (`parser.js`, `compat.js`, `fetch-article.js`) have been updated. External callers who imported this function directly will need to destructure `result.text` and handle the `null` (304) case.
+
+
 
 ### Fixed
 

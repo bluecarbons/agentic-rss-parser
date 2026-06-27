@@ -46,7 +46,7 @@ test('ParserCompat parseURL follows redirects through the underlying parser', as
 
   await new Promise((resolve) => server.listen(0, resolve));
   const { port } = server.address();
-  const parser = createParser();
+  const parser = createParser({ _allowPrivateHosts: true });
 
   try {
     const feed = await parser.parseURL(`http://127.0.0.1:${port}/redirect`);

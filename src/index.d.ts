@@ -225,6 +225,34 @@ export function resolveSignals(
 
 export function fetchFullArticle(url: string): Promise<string>;
 
+export interface StorageAnalysisRow {
+  id: string;
+  item_id: string;
+  decision: 'relevant' | 'ignore';
+  confidence: number;
+  summary: string;
+  impact: string;
+  actionItems: string[];
+  tags: string[];
+  created_at: string;
+  feed_url: string;
+  title: string;
+  link: string;
+  published_at: string | null;
+  processed_at: string;
+}
+
+export interface GetAnalysesOptions {
+  /** Filter to a specific feed URL. */
+  feedUrl?: string;
+  /** Filter by decision value. */
+  decision?: 'relevant' | 'ignore';
+  /** Maximum rows to return (default: 50, max: 1000). */
+  limit?: number;
+  /** Pagination offset (default: 0). */
+  offset?: number;
+}
+
 export function createStorage(dbPath: string): {
   hasProcessed(id: string): boolean;
   markProcessed(item: {
@@ -246,6 +274,15 @@ export function createStorage(dbPath: string): {
       tags: string[];
     }
   ): void;
+  /**
+   * Query stored analyses with optional filtering and pagination.
+   */
+  getAnalyses(opts?: GetAnalysesOptions): StorageAnalysisRow[];
+  /**
+   * Prune processed_items and analyses older than `ttlDays` days.
+   * Returns counts of deleted rows in each table.
+   */
+  pruneOlderThan(ttlDays: number): { deletedItems: number; deletedAnalyses: number };
   close(): void;
 };
 

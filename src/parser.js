@@ -67,7 +67,10 @@ export async function runAgenticParser(config) {
       concurrency,
       async (feedUrl) => {
         try {
-          const xml = await fetchTextWithRedirects(feedUrl, config.parserOptions);
+          const result = await fetchTextWithRedirects(feedUrl, config.parserOptions);
+          // fetchTextWithRedirects returns null on 304 Not Modified (feed unchanged).
+          if (result === null) return;
+          const xml = result.text;
           const feed = parseFeedXml(xml, config.parserOptions);
 
           for (const item of feed.items) {

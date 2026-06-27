@@ -67,9 +67,11 @@ export class ParserCompat {
   }
 
   parseURL(url, callback) {
-    const promise = fetchTextWithRedirects(url, this.options).then((xml) =>
-      this.parseString(xml)
-    );
+    const promise = fetchTextWithRedirects(url, this.options).then((result) => {
+      // fetchTextWithRedirects returns null on 304 Not Modified.
+      if (result === null) return this.parseString('');
+      return this.parseString(result.text);
+    });
     return maybeCallback(promise, callback);
   }
 

@@ -66,7 +66,7 @@ const feedUrl = process.argv[2] ?? 'https://news.ycombinator.com/rss';
 console.log(`Asking the model to analyse: ${feedUrl}\n`);
 
 const { text, toolCalls, toolResults } = await generateText({
-  model: anthropic('claude-sonnet-4-5'),
+  model: anthropic('claude-sonnet-4-6'),
   tools,
   maxSteps: 5, // allow multi-step tool use
   prompt: `Fetch the RSS feed at ${feedUrl} and give me a concise summary of the 5 most relevant items.`

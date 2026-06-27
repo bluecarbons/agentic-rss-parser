@@ -77,13 +77,34 @@ export const DEFAULT_HEURISTIC_SIGNALS = [
  * @param {{ signals?: string[], extraSignals?: string[] }} [options]
  * @returns {string[]}
  */
+/**
+ * Sanitize a raw signal string for safe use in heuristic matching and tag output.
+ *
+ * SECURITY — output safety:
+ * Signal strings end up in the `tags` array of every AnalysisResult, which is
+ * stored in SQLite and returned to callers (including LLMs). Allowing arbitrary
+ * characters (e.g. '<script>', 'DROP TABLE') would pollute stored tags and
+ * LLM context. We restrict signals to alphanumeric characters, hyphens,
+ * underscores, and spaces — sufficient for any legitimate keyword.
+ *
+ * @param {string} s - Raw signal string.
+ * @returns {string} Sanitized, lowercased, trimmed signal string (may be empty).
+ */
+function sanitizeSignal(s) {
+  return String(s)
+    .toLowerCase()
+    .replace(/[^a-z0-9\-_\s]/g, '') // strip anything that isn't word chars / hyphens / spaces
+    .replace(/\s+/g, ' ')            // collapse whitespace
+    .trim();
+}
+
 export function resolveSignals(options = {}) {
   if (Array.isArray(options.signals) && options.signals.length > 0) {
-    return [...new Set(options.signals.map((s) => String(s).toLowerCase().trim()).filter(Boolean))];
+    return [...new Set(options.signals.map(sanitizeSignal).filter(Boolean))];
   }
   const base = [...DEFAULT_HEURISTIC_SIGNALS];
   if (Array.isArray(options.extraSignals) && options.extraSignals.length > 0) {
-    const extra = options.extraSignals.map((s) => String(s).toLowerCase().trim()).filter(Boolean);
+    const extra = options.extraSignals.map(sanitizeSignal).filter(Boolean);
     return [...new Set([...base, ...extra])];
   }
   return base;
