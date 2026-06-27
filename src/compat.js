@@ -40,6 +40,32 @@ const DEFAULT_OPTIONS = {
   requestOptions: {}
 };
 
+function assertFeedUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) {
+    throw new TypeError('ParserCompat.parseURL() requires a non-empty string URL');
+  }
+}
+
+function assertLocalFeedPath(filePath) {
+  if (typeof filePath !== 'string' || !filePath.trim()) {
+    throw new TypeError('ParserCompat.parseFile() requires a non-empty string path');
+  }
+  if (filePath.includes('://')) {
+    throw new TypeError('ParserCompat.parseFile() only accepts local filesystem paths');
+  }
+  if (filePath.includes('\0')) {
+    throw new TypeError('ParserCompat.parseFile() path contains invalid null bytes');
+  }
+}
+
+function normalizeFeedUrls(urls) {
+  const list = Array.isArray(urls) ? urls : [urls];
+  return list.map((url) => {
+    assertFeedUrl(url);
+    return url.trim();
+  });
+}
+
 function mergeOptions(options = {}) {
   return {
     ...DEFAULT_OPTIONS,
@@ -67,7 +93,8 @@ export class ParserCompat {
   }
 
   parseURL(url, callback) {
-    const promise = fetchTextWithRedirects(url, this.options).then((result) => {
+    assertFeedUrl(url);
+    const promise = fetchTextWithRedirects(url.trim(), this.options).then((result) => {
       // fetchTextWithRedirects returns null on 304 Not Modified.
       if (result === null) return this.parseString('');
       return this.parseString(result.text);
@@ -81,6 +108,7 @@ export class ParserCompat {
   }
 
   parseFile(filePath, callback) {
+    assertLocalFeedPath(filePath);
     const promise = readFile(filePath, 'utf8').then((xml) => this.parseString(xml));
     return maybeCallback(promise, callback);
   }
@@ -99,7 +127,7 @@ export class ParserCompat {
    */
   async parseFeed(urls, config = {}) {
     const { results } = await runAgenticParser({
-      feedUrls: Array.isArray(urls) ? urls : [urls],
+      feedUrls: normalizeFeedUrls(urls),
       dbPath: config.dbPath ?? DEFAULT_DB_PATH,
       fetchFullArticle: Boolean(config.fetchFullArticle),
       concurrency: config.concurrency,

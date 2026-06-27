@@ -30,6 +30,12 @@ import Parser from 'agentic-rss-parser';
 
 All existing `parseURL`, `parseString`, `parseFile`, `customFields`, `headers`, `timeout`, and callback-style usage is preserved exactly. The agentic pipeline (`parseFeed`, `runAgenticParser`) is an optional extension on top.
 
+The compatibility layer is intentionally explicit about its trust boundaries:
+
+- `parseURL()` only accepts `http:` and `https:` URLs and rejects private/loopback targets.
+- `parseFile()` reads local filesystem paths only and rejects URL-like inputs.
+- `parseFeed()` forwards only validated feed URLs into the agentic pipeline.
+
 ---
 
 ## Why a Minimal Dependency Surface?
