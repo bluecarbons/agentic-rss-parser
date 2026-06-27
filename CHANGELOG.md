@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 --- 
 
+## [1.2.5] — 2026-06-27
+
+### Fixed
+
+- Security documentation now reflects the package's intentional dependency surface and explicit network access model.
+
 ## [1.2.4] — 2026-06-27
 
 ### Fixed

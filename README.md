@@ -8,9 +8,9 @@
 [![GitHub stars](https://img.shields.io/github/stars/bluecarbons/agentic-rss-parser?style=social)](https://github.com/bluecarbons/agentic-rss-parser)
 [![GitHub issues](https://img.shields.io/github/issues/bluecarbons/agentic-rss-parser)](https://github.com/bluecarbons/agentic-rss-parser/issues)
 
-**Agentic RSS Parser** is an enterprise-grade, **zero-dependency** Node.js library for parsing RSS and Atom feeds. It provides a familiar `rss-parser`-compatible API while adding agentic analysis, deduplication, enrichment, and multi-SDK tool integration.
+**Agentic RSS Parser** is an enterprise-grade Node.js library for parsing RSS and Atom feeds. It provides a familiar `rss-parser`-compatible API while adding agentic analysis, deduplication, enrichment, and multi-SDK tool integration.
 
-Built entirely on native Node.js APIs (no `fast-xml-parser`, no `zod`, no AI SDKs in production). Safe to deploy in security-sensitive environments.
+The production runtime is intentionally small and auditable. It uses a minimal set of direct dependencies for XML parsing, schema validation, and provider integrations, and it keeps network access explicit and configurable. Safe to deploy in security-sensitive environments when used with the documented security controls.
 
 > **Version 1.2.0** — Configurable heuristic signals, `userAgent` option, corrected default DB path, and full SDK integration examples for Anthropic, OpenAI Agents, and Vercel AI SDK.
 
@@ -32,15 +32,15 @@ All existing `parseURL`, `parseString`, `parseFile`, `customFields`, `headers`, 
 
 ---
 
-## Why Zero-Dependency?
+## Why a Minimal Dependency Surface?
 
-Traditional feed parsers pull in dozens of nested dependencies. `rss-parser` has not received a security update since 2022. **Agentic RSS Parser** eliminates this risk by using 100% native Node.js APIs:
+Traditional feed parsers pull in dozens of nested dependencies. `rss-parser` has not received a security update since 2022. **Agentic RSS Parser** reduces supply-chain risk by keeping the dependency surface small and intentional:
 
 - **Custom XML Engine** — Non-recursive, character-by-character scanner. Naturally immune to XXE and Billion Laughs attacks.
 - **Native JSON-RPC MCP Server** — Custom stdin/stdout transport built on Node's `readline` module.
 - **Native LLM Adapters** — Direct connection to OpenAI and Anthropic REST endpoints using built-in `fetch()`.
-- **Manual Schema Validation** — Zero-dependency schema checks (no `zod`).
-- **Built-in SQLite Caching** — Native `node:sqlite` module for deduplication.
+- **Explicit schema validation** — Lightweight validation layer for analysis responses.
+- **Built-in SQLite caching** — Native `node:sqlite` module for deduplication.
 
 ---
 
@@ -399,7 +399,7 @@ npm run lint # syntax-checks all source files
 - **Response size cap** — Feed responses capped at 5 MB; LLM responses at 1 MB
 - **SSRF** — `file://`, `javascript://`, `ftp://` and all non-HTTP(S) schemes rejected
 - **Stack overflow** — XML parsed iteratively (state machine), not recursively
-- **Supply-chain** — Zero production dependencies; all code auditable in a single repository
+- **Supply-chain** — Small, intentional dependency surface; outbound network access is explicit and documented
 
 See [SECURITY.md](./SECURITY.md) for the vulnerability disclosure policy.
 
