@@ -7,9 +7,6 @@
  * This example has ONE peer dependency in YOUR project:
  *   npm install @anthropic-ai/sdk
  *
- * Set your API key:
- *   export ANTHROPIC_API_KEY=sk-ant-...
- *
  * Run:
  *   node examples/anthropic-sdk.mjs
  *   # or pass a custom feed URL:
@@ -20,7 +17,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { runAgenticParser, fetchFullArticle } from '../src/index.js';
 
-const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY ?? 'sk-ant-...'
+});
 
 // ─── Tool definitions ────────────────────────────────────────────────────────
 // These follow the Anthropic tool_use input_schema spec exactly.

@@ -65,8 +65,8 @@ This mitigates XSS if `contentSnippet` is rendered as HTML by a downstream consu
 ### Supply-Chain
 
 - **Intentional dependency surface** — the package keeps its direct dependencies small and explicit so reviewers can audit the exact runtime surface. It is not dependency-free.
-- **`socket.dev` false positives suppressed** — outbound network calls and provider endpoint strings are documented in `package.json` under `"socket"` to prevent alert fatigue from static analysis tools. The code avoids direct environment-variable reads in the provider layer.
-- **Network access is explicit** — feed fetching and optional provider analysis require outbound HTTP requests by design. These are restricted to documented HTTP/HTTPS endpoints and validated before use.
+- **`socket.dev` findings** — outbound network calls and provider endpoint strings are intentional and documented. The code avoids direct environment-variable reads in the provider layer.
+- **Network access is explicit** — feed fetching and optional provider analysis require outbound HTTP requests by design. These are restricted to documented HTTP/HTTPS endpoints, validated before use, and capped for size and redirects.
 
 ---
 

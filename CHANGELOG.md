@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 --- 
 
+## [1.2.6] — 2026-06-27
+
+### Fixed
+
+- Security and SDK docs now describe the intentional networked runtime more accurately.
+
 ## [1.2.5] — 2026-06-27
 
 ### Fixed

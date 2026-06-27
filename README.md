@@ -241,15 +241,7 @@ Once connected, Claude (or any MCP-compliant host) can call `fetch_rss_feed` and
 
 ### Anthropic SDK (Direct)
 
-See [`examples/anthropic-sdk.mjs`](./examples/anthropic-sdk.mjs) — a full agentic loop using `@anthropic-ai/sdk` with multi-step `tool_use` cycling.
-
-```js
-import Anthropic from '@anthropic-ai/sdk';
-import { runAgenticParser } from 'agentic-rss-parser';
-
-// Tools defined as plain JSON Schema — no external schema library.
-// Full loop in examples/anthropic-sdk.mjs
-```
+See [`examples/anthropic-sdk.mjs`](./examples/anthropic-sdk.mjs) for a full agentic loop using `@anthropic-ai/sdk` with multi-step `tool_use` cycling. The example configures the client with an explicit `apiKey` so the integration path stays clear and auditable.
 
 ### OpenAI Agents SDK
 
