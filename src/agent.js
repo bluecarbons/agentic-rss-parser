@@ -118,7 +118,7 @@ export function resolveSignals(options = {}) {
  *
  * @param {{ title?: string, contentSnippet?: string }} item
  * @param {string} [context]
- * @param {{ signals?: string[], extraSignals?: string[] }} [options]
+ * @param {{ signals?: string[], extraSignals?: string[], threshold?: number }} [options]
  * @returns {{ decision: 'relevant'|'ignore', confidence: number, summary: string, impact: string, actionItems: string[], tags: string[] }}
  */
 export function heuristicAnalyze(item, context, options = {}) {
@@ -129,8 +129,22 @@ export function heuristicAnalyze(item, context, options = {}) {
     0
   );
   const threshold = options.threshold ?? 3;
-  const confidence = Math.min(95, 35 + score * 10);
   const decision = score >= threshold ? 'relevant' : 'ignore';
+
+  // CORRECTNESS — confidence polarity fix:
+  // Previously all items (relevant and ignore alike) used the same
+  // formula: Math.min(95, 35 + score * 10). This produced confidence: 35
+  // for a score-0 item with decision 'ignore', which reads as "35% confident
+  // it is relevant" — semantically backwards for the ignore case.
+  //
+  // Fix: relevant items scale upward from 35 (low signal) to 95 (high signal).
+  //      ignore  items scale downward from 95 (no signal = very sure it's noise)
+  //              to 5 (borderline score just under threshold).
+  const confidence =
+    decision === 'relevant'
+      ? Math.min(95, 35 + score * 10)
+      : Math.max(5, 95 - score * 10);
+
   return validateAnalysis({
     decision,
     confidence,

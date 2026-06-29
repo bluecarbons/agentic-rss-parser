@@ -1,3 +1,34 @@
+/**
+ * findTagClose — quote-aware scan for the closing '>' of an XML tag.
+ *
+ * CORRECTNESS: xml.indexOf('>', from) is NOT safe for attribute parsing
+ * because a quoted attribute value may legally contain an unescaped '>'
+ * (e.g. title="A > B article"). A naive indexOf fires on the first '>' it
+ * finds, which may be inside a quoted value, splitting the tag string and
+ * silently corrupting every node that follows in the same parent element.
+ *
+ * This helper tracks quote state character-by-character so it only returns
+ * a position at a true tag-close '>' that is outside any quoted attribute.
+ *
+ * @param {string} xml  - Full XML source string.
+ * @param {number} from - Index to start scanning from (one past the opening '<').
+ * @returns {number} Index of the closing '>', or -1 if not found.
+ */
+function findTagClose(xml, from) {
+  let q = null;
+  for (let i = from; i < xml.length; i++) {
+    const c = xml[i];
+    if (q) {
+      if (c === q) q = null;
+    } else if (c === '"' || c === "'") {
+      q = c;
+    } else if (c === '>') {
+      return i;
+    }
+  }
+  return -1;
+}
+
 export function parseXml(xml) {
   let index = 0;
 
@@ -61,7 +92,9 @@ export function parseXml(xml) {
       continue;
     }
 
-    const closeTagBracket = xml.indexOf('>', index);
+    // Use quote-aware scan so a '>' inside a quoted attribute value does not
+    // prematurely close the tag and corrupt the node tree.
+    const closeTagBracket = findTagClose(xml, index + 1);
     if (closeTagBracket === -1) {
       index = xml.length;
       break;

@@ -219,7 +219,20 @@ Only output valid JSON.`;
         .replace(/^```(?:json)?\s*/i, '')
         .replace(/\s*```$/, '')
         .trim();
-      const parsedResult = JSON.parse(parsedResultText);
+
+      // CORRECTNESS: wrap JSON.parse in try/catch so a refusal, partial
+      // response, or rate-limit message from Anthropic (which survives the
+      // markdown-fence strip above as non-JSON text) throws a descriptive
+      // Error rather than a bare SyntaxError with no context. The error
+      // propagates as a feedErrors entry in runAgenticParser.
+      let parsedResult;
+      try {
+        parsedResult = JSON.parse(parsedResultText);
+      } catch {
+        throw new Error(
+          `Anthropic response was not valid JSON. Raw response: ${rawText.slice(0, 200)}`
+        );
+      }
       return AnalysisSchema.parse(parsedResult);
     }
 

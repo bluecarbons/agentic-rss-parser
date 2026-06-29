@@ -12,7 +12,7 @@
 
 The production runtime is intentionally small and auditable. It uses a minimal set of direct dependencies for XML parsing, schema validation, and provider integrations, and it keeps network access explicit and configurable. Safe to deploy in security-sensitive environments when used with the documented security controls.
 
-> **Version 1.2.0** — Configurable heuristic signals, `userAgent` option, corrected default DB path, and full SDK integration examples for Anthropic, OpenAI Agents, and Vercel AI SDK.
+> **Version 1.3.5** — Quote-aware XML tag scanner, corrected confidence polarity for heuristic ignore decisions, nullable `link` column in SQLite, safe Anthropic JSON parse, clean MCP URL validation errors, and full SDK integration examples for Anthropic, OpenAI Agents, Vercel AI SDK, LangChain, and Google ADK.
 
 ---
 
@@ -42,7 +42,7 @@ The compatibility layer is intentionally explicit about its trust boundaries:
 
 Traditional feed parsers pull in dozens of nested dependencies. `rss-parser` has not received a security update since 2022. **Agentic RSS Parser** reduces supply-chain risk by keeping the dependency surface small and intentional:
 
-- **Custom XML Engine** — Non-recursive, character-by-character scanner. Naturally immune to XXE and Billion Laughs attacks.
+- **Custom XML Engine** — Non-recursive, character-by-character scanner with quote-aware attribute parsing. Naturally immune to XXE and Billion Laughs attacks.
 - **Native JSON-RPC MCP Server** — Custom stdin/stdout transport built on Node's `readline` module.
 - **Native LLM Adapters** — Direct connection to OpenAI and Anthropic REST endpoints using built-in `fetch()`.
 - **Explicit schema validation** — Lightweight validation layer for analysis responses.
@@ -67,7 +67,7 @@ Traditional feed parsers pull in dozens of nested dependencies. `rss-parser` has
 - **Article enrichment** — Fetches and strips full article body from feed item URLs
 - **MCP server** — stdio JSON-RPC 2.0 server exposing `fetch_rss_feed` and `fetch_full_article` tools; works with Claude Desktop, Cursor, VS Code, and any MCP-compliant host
 - **SQLite deduplication** — Items are SHA-256 deduplicated across runs
-- **SDK integrations** — Ready-to-use examples for Anthropic SDK, OpenAI Agents SDK, Vercel AI SDK, and Google ADK
+- **SDK integrations** — Ready-to-use examples for Anthropic SDK, OpenAI Agents SDK, Vercel AI SDK, LangChain, and Google ADK
 - **`userAgent` option** — Override the default UA to avoid 403s on feeds that block bot user-agents
 
 ---
@@ -79,6 +79,8 @@ npm install agentic-rss-parser
 # or
 pnpm add agentic-rss-parser
 ```
+
+> Zero `dependencies` at runtime. Optional peer packages (`@anthropic-ai/sdk`, `@openai/agents`, `ai`, etc.) are only needed if you use the corresponding SDK integration examples — they are not required for core parsing, heuristic analysis, or the MCP server.
 
 ---
 
@@ -156,7 +158,7 @@ for (const { item, analysis } of results) {
 }
 ```
 
-### Configuring Heuristic Signals (v1.2.0+)
+### Configuring Heuristic Signals
 
 The default signal list is developer/tech-tool focused. Customise it for your domain:
 
@@ -198,7 +200,7 @@ const { results, feedErrors } = await runAgenticParser({
   fetchFullArticle: true,
   model: {
     provider: 'anthropic', // 'openai' | 'anthropic' | 'local' | 'heuristic'
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-6',
     apiKey: 'sk-ant-...' // pass explicitly for provider-backed analysis
   }
 });
@@ -257,6 +259,10 @@ See [`examples/openai-agents-sdk.mjs`](./examples/openai-agents-sdk.mjs) — use
 
 See [`examples/vercel-ai-sdk.mjs`](./examples/vercel-ai-sdk.mjs) — uses `ai` + `@ai-sdk/anthropic` with `generateText` and `maxSteps: 5`.
 
+### LangChain
+
+See [`examples/langchain-js.mjs`](./examples/langchain-js.mjs) — wraps `fetch_rss_feed` as a LangChain `DynamicTool` and binds it to a `ChatAnthropic` agent via `createToolCallingAgent`.
+
 ### Google ADK
 
 See [`examples/adk-real.mjs`](./examples/adk-real.mjs) — wraps the parser as a `FunctionTool` for `LlmAgent`.
@@ -308,7 +314,7 @@ Drop-in replacement for `rss-parser`. All options are compatible.
 | `timeout` | `number` | `10000` | Request timeout in ms |
 | `maxRedirects` | `number` | `5` | Max HTTP redirects to follow |
 | `headers` | `Record<string, string>` | — | Additional request headers |
-| `userAgent` | `string` | `agentic-rss-parser/<version>` | Override the User-Agent (**new in v1.2.0**) |
+| `userAgent` | `string` | `agentic-rss-parser/<version>` | Override the User-Agent |
 | `customFields` | `CustomFieldConfig` | — | Map extra XML fields to item properties |
 | `normalize` | `boolean` | `true` | Normalise output shape |
 
@@ -331,9 +337,10 @@ Returns `{ results: Array<{ item, analysis }>, feedErrors: FeedError[] }`.
 | `model.provider` | `string` | `'heuristic'` | `'heuristic'` \| `'openai'` \| `'anthropic'` \| `'local'` |
 | `model.model` | `string` | provider default | Model ID string |
 | `model.apiKey` | `string` | required for `openai`/`anthropic` | Override API key |
-| `model.signals` | `string[]` | — | Replace default signals (**new in v1.2.0**) |
-| `model.extraSignals` | `string[]` | — | Extend default signals (**new in v1.2.0**) |
-| `model.threshold` | `number` | `3` | Signal score needed to mark 'relevant' (**new in v1.2.0**) |
+| `model.signals` | `string[]` | — | Replace default heuristic signals |
+| `model.extraSignals` | `string[]` | — | Extend default heuristic signals |
+| `model.threshold` | `number` | `3` | Signal score needed to mark 'relevant' |
+| `model.retries` | `number` | `2` | HTTP retry attempts on 429/5xx responses |
 
 ---
 
@@ -401,8 +408,8 @@ resolveSignals({ signals: ['ai', 'launch'] });
 ```bash
 git clone https://github.com/bluecarbons/agentic-rss-parser.git
 cd agentic-rss-parser
-npm install  # installs dev deps only — zero production deps
-npm test     # runs all 10 tests via Node's built-in test runner
+npm install  # installs dev deps only — zero runtime dependencies
+npm test     # runs all tests via Node's built-in test runner
 npm run lint # syntax-checks all source files
 ```
 
@@ -414,7 +421,7 @@ npm run lint # syntax-checks all source files
 - **XSS mitigation** — `<script>`, `<iframe>`, `<object>`, `<embed>`, `<form>` stripped from `contentSnippet`
 - **Prompt injection** — Feed content sanitised (control chars stripped, newlines collapsed) before LLM interpolation
 - **Response size cap** — Feed responses capped at 5 MB; LLM responses at 1 MB
-- **SSRF** — `file://`, `javascript://`, `ftp://` and all non-HTTP(S) schemes rejected
+- **SSRF** — `file://`, `javascript://`, `ftp://` and all non-HTTP(S) schemes rejected; RFC-1918 private ranges (10.x, 172.16–31.x, 192.168.x), loopback (127.x, ::1), link-local (169.254.x), and IPv6 ULA (fc00::/7) are blocked on every request and redirect hop
 - **Stack overflow** — XML parsed iteratively (state machine), not recursively
 - **Supply-chain** — Small, intentional dependency surface; outbound network access is explicit and documented
 

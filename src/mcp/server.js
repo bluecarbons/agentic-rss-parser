@@ -5,6 +5,7 @@ import readline from 'node:readline';
 import { runAgenticParser } from '../parser.js';
 import { createAnalyzer } from '../adapters/provider.js';
 import { fetchFullArticle } from '../fetch-article.js';
+import { assertHttpUrl } from '../core/http.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 // Version read from package.json — never hardcoded.
@@ -202,6 +203,18 @@ async function handleToolCall(name, args) {
       );
     }
     const url = args.url.trim();
+
+    // CORRECTNESS: validate the URL before delegating to fetchFullArticle.
+    // Without this, an invalid or non-HTTP URL throws from deep inside http.js
+    // and surfaces as a -32603 Internal error with a raw stack trace. Calling
+    // assertHttpUrl() here returns a clean -32602 Invalid params response
+    // instead, matching the error contract of the fetch_rss_feed tool.
+    try {
+      assertHttpUrl(url);
+    } catch (err) {
+      throw Object.assign(new Error(`Invalid params: ${err.message}`), { code: -32602 });
+    }
+
     const text = await fetchFullArticle(url);
     return {
       content: [
