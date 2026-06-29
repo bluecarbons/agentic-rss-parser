@@ -5,6 +5,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 --- 
 
+## [1.3.6] — 2026-06-29
+
+### Fixed
+
+- **`src/core/parser.js`** — Added quote-aware `>` scanner (`findTagClose`) to prevent tag-string corruption when attribute values contain unescaped `>` characters (e.g. `title="A > B"`). Previously, a naive `indexOf('>')` would split the tag at the first `>` inside a quoted value, silently corrupting every subsequent sibling node.
+- **`src/agent.js`** — Fixed inverted confidence formula for `ignore` decisions. Previously all ignored items received a fixed `confidence: 35` regardless of signal score. Now scales correctly: `relevant` → `Math.min(95, 35 + score * 10)`; `ignore` → `Math.max(5, 95 - score * 10)`.
+- **`src/storage.js`** — Changed `link` column from `TEXT NOT NULL` to `TEXT` (nullable); `markProcessed` now passes `item.link || null` so link-less items store a proper `NULL` instead of an empty string.
+- **`src/storage.js`** — `pruneOlderThan` now uses a parameterised binding for the interval string instead of string interpolation, eliminating static-analysis false positives.
+- **`src/adapters/provider.js`** — Wrapped Anthropic `JSON.parse` in a `try/catch`; malformed or refused responses now surface as a descriptive `feedErrors` entry rather than a bare `SyntaxError`.
+- **`src/mcp/server.js`** — `fetch_full_article` handler now calls `assertHttpUrl` early and returns a clean JSON-RPC `-32602 Invalid params` error on bad URLs instead of an opaque `-32603 Internal error` stack trace.
+
 ## [1.3.5] — 2026-06-28
 
 ### Fixed
