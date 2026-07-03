@@ -1,17 +1,8 @@
-import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { runAgenticParser } from './parser.js';
 import { parseFeedXml } from './core/parser.js';
 import { fetchTextWithRedirects } from './core/http.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PACKAGE_ROOT = join(__dirname, '..');
-const CWD = process.cwd();
-const DEFAULT_DB_PATH =
-  CWD === PACKAGE_ROOT || CWD.startsWith(PACKAGE_ROOT + '/')
-    ? join(PACKAGE_ROOT, 'data', 'rss-agent.db')
-    : join(CWD, 'data', 'rss-agent.db');
+import { DEFAULT_DB_PATH } from './core/db-path.js';
 
 const DEFAULT_OPTIONS = {
   normalize: true,

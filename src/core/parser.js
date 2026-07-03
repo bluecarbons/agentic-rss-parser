@@ -128,12 +128,36 @@ export function parseXml(xml) {
 
       const node = { '#name': name, '#children': [] };
 
-      const attrRegex = /([a-zA-Z0-9_:-]+)="([^"]*)"|([a-zA-Z0-9_:-]+)='([^']*)'/g;
+      // CORRECTNESS: match both quoted and unquoted attribute values.
+      // RFC-compliant XML requires quotes, but real-world feeds from legacy
+      // CMS platforms regularly emit bare unquoted values (e.g. <item count=5
+      // selected>). The previous regex only covered single- and double-quoted
+      // forms, silently dropping any unquoted attribute entirely.
+      //
+      // Pattern breakdown:
+      //   Quoted (double): ([a-zA-Z0-9_:-]+)="([^"]*)"   -- key="val"
+      //   Quoted (single): ([a-zA-Z0-9_:-]+)='([^']*)'   -- key='val'
+      //   Unquoted:        ([a-zA-Z0-9_:-]+)=([^\s>"'/]+) -- key=val
+      //   Boolean flag:    ([a-zA-Z0-9_:-]+)(?=[\s>])     -- selected, async
+      //
+      // Unquoted values stop at whitespace, >, ", ', or / to avoid over-consuming.
+      const attrRegex =
+        /([a-zA-Z0-9_:-]+)="([^"]*)"|([a-zA-Z0-9_:-]+)='([^']*)'|([a-zA-Z0-9_:-]+)=([^\s>"'/]+)|([a-zA-Z0-9_:-]+)(?=[\s>/]|$)/g;
       let attrMatch;
       while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
-        const key = attrMatch[1] || attrMatch[3];
-        const rawVal = attrMatch[2] !== undefined ? attrMatch[2] : attrMatch[4];
-        node[`@_${key}`] = unescapeEntities(rawVal);
+        if (attrMatch[1] !== undefined) {
+          // double-quoted
+          node[`@_${attrMatch[1]}`] = unescapeEntities(attrMatch[2]);
+        } else if (attrMatch[3] !== undefined) {
+          // single-quoted
+          node[`@_${attrMatch[3]}`] = unescapeEntities(attrMatch[4]);
+        } else if (attrMatch[5] !== undefined) {
+          // unquoted value
+          node[`@_${attrMatch[5]}`] = unescapeEntities(attrMatch[6]);
+        } else if (attrMatch[7] !== undefined) {
+          // boolean flag — value is empty string
+          node[`@_${attrMatch[7]}`] = '';
+        }
       }
 
       if (isSelfClose) {
@@ -192,11 +216,24 @@ function asArray(value) {
 /**
  * Strip HTML tags from a string to produce a plain-text snippet.
  *
- * SECURITY: removes entire contents of executable/embeddable tag blocks
- * (script, style, iframe, object, embed, form) to prevent XSS vectors
- * in any downstream context that renders contentSnippet as HTML.
- * Inline event handlers (onerror=, onclick=, etc.) are neutralised by
- * removing all remaining tags after the block removal pass.
+ * Removal is done in two passes:
+ *
+ * Pass 1 — block removal: entire tag + content is removed for executable
+ * and embeddable elements: <script>, <style>, <iframe>, <object>, <embed>,
+ * <form>. This prevents XSS vectors where a script payload or CSS expression
+ * inside a block-level element survives tag stripping and reaches a renderer.
+ *
+ * Pass 2 — tag removal: all remaining tags are stripped with <[^>]+> so
+ * that inline event handlers (onerror=, onclick=, etc.) are neutralised by
+ * removing the surrounding tag entirely.
+ *
+ * Additional normalisation:
+ *   - &nbsp; is replaced with a regular space before whitespace collapse
+ *   - Consecutive whitespace is collapsed to a single space
+ *   - Leading/trailing whitespace is trimmed
+ *
+ * @param {string} [html=''] - Raw HTML string to convert to plain text.
+ * @returns {string} Plain-text representation with all markup removed.
  */
 export function stripHtml(html = '') {
   return String(html)
@@ -281,15 +318,9 @@ function normalizeItem(itemNode, options) {
     title: textValue(itemNode.title),
     link: getLinkValue(itemNode.link),
     pubDate: rawDate,
-    // CORRECTNESS: isoDate must be an ISO 8601 string (or null), not the raw
-    // RSS date string. safeIsoDate() parses via Date() and falls back to the
-    // raw string only when parsing fails (non-standard feed date formats).
     isoDate: safeIsoDate(rawDate),
     guid: textValue(itemNode.guid || itemNode.id),
     content: textValue(itemNode['content:encoded'] || itemNode.content || itemNode.summary || itemNode.description),
-    // COHERENCE: contentSnippet is set once here from the richest available
-    // source and is NOT overwritten below. The previous code set it here
-    // then silently clobbered it 10 lines later.
     contentSnippet: stripHtml(textValue(itemNode.description || itemNode.summary || itemNode.content || itemNode['content:encoded'])),
     categories: asArray(itemNode.category ?? itemNode.categories).map(textValue).filter(Boolean)
   };
