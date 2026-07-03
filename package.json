@@ -1,6 +1,6 @@
 {
   "name": "agentic-rss-parser",
-  "version": "1.3.6",
+  "version": "1.4.0",
   "type": "module",
   "engines": {
     "node": ">=22.5.0"
@@ -50,7 +50,7 @@
     "start": "node ./src/cli.js",
     "mcp": "node ./src/mcp/server.js",
     "test": "node --test",
-    "lint": "node --check ./src/index.js ./src/agent.js ./src/parser.js ./src/storage.js ./src/compat.js ./src/tools.js ./src/fetch-article.js ./src/cli.js ./src/core/http.js ./src/core/parser.js ./src/adapters/provider.js ./src/mcp/server.js",
+    "lint": "node --check ./src/index.js ./src/agent.js ./src/parser.js ./src/storage.js ./src/compat.js ./src/tools.js ./src/fetch-article.js ./src/cli.js ./src/core/http.js ./src/core/parser.js ./src/core/db-path.js ./src/adapters/provider.js ./src/mcp/server.js",
     "release:npm": "npm publish --access public",
     "release:pnpm": "corepack pnpm publish --access public --no-git-checks"
   },
