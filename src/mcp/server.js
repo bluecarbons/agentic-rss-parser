@@ -1,22 +1,13 @@
 #!/usr/bin/env node
-import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
 import readline from 'node:readline';
 import { runAgenticParser } from '../parser.js';
 import { createAnalyzer } from '../adapters/provider.js';
 import { fetchFullArticle } from '../fetch-article.js';
 import { assertHttpUrl } from '../core/http.js';
+import { DEFAULT_DB_PATH } from '../core/db-path.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 const { version: PKG_VERSION } = pkg;
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PACKAGE_ROOT = join(__dirname, '../..');
-const CWD = process.cwd();
-const DEFAULT_DB_PATH =
-  CWD === PACKAGE_ROOT || CWD.startsWith(PACKAGE_ROOT + '/')
-    ? join(PACKAGE_ROOT, 'data', 'rss-agent.db')
-    : join(CWD, 'data', 'rss-agent.db');
 
 const ALLOWED_PROVIDERS = new Set(['heuristic', 'openai', 'anthropic', 'local']);
 const MAX_CONCURRENT_TOOL_CALLS = normalizeMaxConcurrent(process.env.AGENTIC_RSS_MAX_CONCURRENCY);
@@ -145,7 +136,6 @@ async function enqueueToolCall(fn) {
   if (activeToolCalls >= MAX_CONCURRENT_TOOL_CALLS) {
     await new Promise((resolve) => toolCallQueue.push(resolve));
   }
-
   activeToolCalls += 1;
   try {
     return await fn();
