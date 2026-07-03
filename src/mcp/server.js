@@ -8,21 +8,8 @@ import { fetchFullArticle } from '../fetch-article.js';
 import { assertHttpUrl } from '../core/http.js';
 import pkg from '../../package.json' with { type: 'json' };
 
-// Version read from package.json — never hardcoded.
 const { version: PKG_VERSION } = pkg;
 
-// DB path — two-tier strategy matching compat.js:
-//
-//   1. process.cwd()/data/rss-agent.db — when installed as a package
-//      (node_modules/agentic-rss-parser/...) the CWD is the consumer's
-//      project root, so the DB lands next to their own source files.
-//
-//   2. <package-root>/data/rss-agent.db — fallback when running directly
-//      from a clone of this repo (CWD === package root).
-//
-// This replaces the previous module-relative path which resolved to inside
-// node_modules when the package was installed, making the DB invisible to
-// consumers and surprising to inspect.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = join(__dirname, '../..');
 const CWD = process.cwd();
@@ -31,10 +18,10 @@ const DEFAULT_DB_PATH =
     ? join(PACKAGE_ROOT, 'data', 'rss-agent.db')
     : join(CWD, 'data', 'rss-agent.db');
 
-// SECURITY: allowlist of provider values accepted from untrusted MCP callers.
-// Validated in handleToolCall before being passed to createAnalyzer so an
-// attacker cannot supply arbitrary strings into internal provider dispatch.
 const ALLOWED_PROVIDERS = new Set(['heuristic', 'openai', 'anthropic', 'local']);
+const MAX_CONCURRENT_TOOL_CALLS = normalizeMaxConcurrent(process.env.AGENTIC_RSS_MAX_CONCURRENCY);
+let activeToolCalls = 0;
+const toolCallQueue = [];
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -121,7 +108,7 @@ rl.on('line', async (line) => {
       }
 
       try {
-        const result = await handleToolCall(name, args);
+        const result = await enqueueToolCall(() => handleToolCall(name, args));
         sendResponse(requestId, result);
       } catch (err) {
         const code = err.code === -32602 ? -32602 : -32603;
@@ -134,7 +121,6 @@ rl.on('line', async (line) => {
       sendError(requestId, -32601, 'Method not found');
     }
   } catch {
-    // JSON-RPC spec §5: parse errors use id: null.
     sendError(null, -32700, 'Parse error');
   }
 });
@@ -149,6 +135,27 @@ function sendError(id, code, message) {
   );
 }
 
+function normalizeMaxConcurrent(raw) {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) return 3;
+  return Math.min(16, Math.trunc(parsed));
+}
+
+async function enqueueToolCall(fn) {
+  if (activeToolCalls >= MAX_CONCURRENT_TOOL_CALLS) {
+    await new Promise((resolve) => toolCallQueue.push(resolve));
+  }
+
+  activeToolCalls += 1;
+  try {
+    return await fn();
+  } finally {
+    activeToolCalls -= 1;
+    const next = toolCallQueue.shift();
+    if (next) next();
+  }
+}
+
 async function handleToolCall(name, args) {
   if (name === 'fetch_rss_feed') {
     if (typeof args.url !== 'string' || !args.url.trim()) {
@@ -158,9 +165,6 @@ async function handleToolCall(name, args) {
       );
     }
 
-    // SECURITY: validate provider against allowlist before passing to
-    // createAnalyzer — prevents untrusted MCP callers from supplying
-    // arbitrary strings into internal dispatch logic.
     const rawProvider = args.provider;
     if (rawProvider !== undefined && !ALLOWED_PROVIDERS.has(rawProvider)) {
       throw Object.assign(
@@ -172,24 +176,24 @@ async function handleToolCall(name, args) {
     }
 
     const url = args.url.trim();
-    // CORRECTNESS: guard limit against NaN, non-integer, and <= 0 values.
     const limit =
       Number.isInteger(args.limit) && args.limit > 0 && args.limit <= 1000 ? args.limit : 10;
     const provider = rawProvider || 'heuristic';
 
     const analyzer = await createAnalyzer({ provider });
-    const { results } = await runAgenticParser({
+    const { results, feedErrors } = await runAgenticParser({
       feedUrls: [url],
       dbPath: DEFAULT_DB_PATH,
       analyzer,
-      model: { provider }
+      model: { provider },
+      maxItems: limit
     });
 
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify(results.slice(0, limit), null, 2)
+          text: JSON.stringify({ results, feedErrors }, null, 2)
         }
       ]
     };
@@ -204,11 +208,6 @@ async function handleToolCall(name, args) {
     }
     const url = args.url.trim();
 
-    // CORRECTNESS: validate the URL before delegating to fetchFullArticle.
-    // Without this, an invalid or non-HTTP URL throws from deep inside http.js
-    // and surfaces as a -32603 Internal error with a raw stack trace. Calling
-    // assertHttpUrl() here returns a clean -32602 Invalid params response
-    // instead, matching the error contract of the fetch_rss_feed tool.
     try {
       assertHttpUrl(url);
     } catch (err) {
