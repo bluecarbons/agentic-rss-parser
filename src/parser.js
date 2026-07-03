@@ -36,7 +36,11 @@ function normalizeItem(feedUrl, item) {
  *
  * @param {object} config
  * @param {string[]} config.feedUrls        - Feed URLs to process (required, non-empty array).
- * @param {string}   config.dbPath          - Absolute path to the SQLite database (required).
+ * @param {string}   config.dbPath          - Absolute path to the SQLite database (required
+ *                                            when no custom storage adapter is provided).
+ * @param {object}   [config.storage]       - Custom StorageAdapter. When provided, dbPath is
+ *                                            ignored. Use createMemoryStorage() for testing or
+ *                                            environments without node:sqlite (Node 18/20).
  * @param {boolean}  [config.fetchFullArticle] - Fetch full article body for context.
  * @param {number}   [config.concurrency]   - Max parallel feed fetches (default: 1, max: 16).
  * @param {object}   [config.parserOptions] - Options forwarded to parseFeedXml.
@@ -51,11 +55,23 @@ export async function runAgenticParser(config) {
   if (!Array.isArray(config?.feedUrls) || config.feedUrls.length === 0) {
     throw new TypeError('runAgenticParser: config.feedUrls must be a non-empty array of URL strings');
   }
-  if (typeof config.dbPath !== 'string' || !config.dbPath.trim()) {
-    throw new TypeError('runAgenticParser: config.dbPath must be a non-empty string');
+
+  // Accept either a pre-built storage adapter or a dbPath string.
+  // This allows Node 18/20 consumers (no node:sqlite) to supply their own
+  // adapter (e.g. createMemoryStorage() or a better-sqlite3 wrapper) while
+  // keeping the default createStorage() path for Node 22.5+ users.
+  let storage;
+  if (config.storage) {
+    storage = config.storage;
+  } else {
+    if (typeof config.dbPath !== 'string' || !config.dbPath.trim()) {
+      throw new TypeError(
+        'runAgenticParser: config.dbPath must be a non-empty string (or supply config.storage)'
+      );
+    }
+    storage = createStorage(config.dbPath);
   }
 
-  const storage = createStorage(config.dbPath);
   const results = [];
   const feedErrors = [];
   const analyzer = config.analyzer ?? (await createAnalyzer(config.model));
@@ -97,7 +113,10 @@ export async function runAgenticParser(config) {
 
     return { results, feedErrors };
   } finally {
-    storage.close();
+    // Only close storage if we created it internally (not caller-supplied).
+    if (!config.storage) {
+      storage.close();
+    }
   }
 }
 
@@ -110,20 +129,24 @@ function normalizeConcurrency(concurrency) {
 /**
  * Run `worker` over every element in `items` with at most `limit`
  * concurrent workers. Returns void — results are accumulated via
- * the worker's own side-effects (closure over outer `results` array).
+ * the worker's own side-effects (closure over outer arrays).
+ *
+ * Uses a shared iterator so the concurrency slots self-schedule:
+ * each worker calls next() on the shared iterator, meaning no slot
+ * ever sits idle while work remains. The shared mutable index
+ * counter approach is avoided entirely — iterator protocol is
+ * inherently safe across concurrent coroutines in the same thread.
  */
 async function mapWithConcurrency(items, limit, worker) {
-  let index = 0;
+  const iter = items[Symbol.iterator]();
 
-  async function next() {
-    while (index < items.length) {
-      const currentIndex = index;
-      index += 1;
-      await worker(items[currentIndex], currentIndex);
+  async function drain() {
+    for (const item of iter) {
+      await worker(item);
     }
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, () => next())
+    Array.from({ length: Math.min(limit, items.length) }, drain)
   );
 }
