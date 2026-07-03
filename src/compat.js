@@ -5,27 +5,9 @@ import { runAgenticParser } from './parser.js';
 import { parseFeedXml } from './core/parser.js';
 import { fetchTextWithRedirects } from './core/http.js';
 
-/**
- * Default DB path strategy (two-tier):
- *
- *   1. process.cwd()/data/rss-agent.db  — when installed as a package
- *      (node_modules/agentic-rss-parser/...), the CWD is the consumer's
- *      project root, so the DB lands next to their own source files.
- *
- *   2. <package-root>/data/rss-agent.db  — fallback when running directly
- *      from a clone of this repo (CWD === package root).
- *
- * In both cases this beats the old module-relative path which could land
- * inside node_modules when the package is installed.
- *
- * Users can always override via config.dbPath in parseFeed() or by passing
- * dbPath directly to runAgenticParser().
- */
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = join(__dirname, '..');
 const CWD = process.cwd();
-// Use CWD-relative path unless we are already inside the package root
-// (i.e. running directly from a repo clone). Detect via simple prefix check.
 const DEFAULT_DB_PATH =
   CWD === PACKAGE_ROOT || CWD.startsWith(PACKAGE_ROOT + '/')
     ? join(PACKAGE_ROOT, 'data', 'rss-agent.db')
@@ -95,7 +77,6 @@ export class ParserCompat {
   parseURL(url, callback) {
     assertFeedUrl(url);
     const promise = fetchTextWithRedirects(url.trim(), this.options).then((result) => {
-      // fetchTextWithRedirects returns null on 304 Not Modified.
       if (result === null) return this.parseString('');
       return this.parseString(result.text);
     });
@@ -113,28 +94,24 @@ export class ParserCompat {
     return maybeCallback(promise, callback);
   }
 
-  /**
-   * Run the full agentic pipeline over one or more feed URLs.
-   *
-   * COHERENCE FIX: runAgenticParser now returns { results, feedErrors }.
-   * This method destructures and returns only `results` so callers of the
-   * compat API get the flat items array they expect — consistent with the
-   * rss-parser migration contract and the TypeScript declaration.
-   *
-   * @param {string|string[]} urls
-   * @param {object} [config]
-   * @returns {Promise<Array<{item, analysis}>>}
-   */
   async parseFeed(urls, config = {}) {
-    const { results } = await runAgenticParser({
+    const { results, feedErrors } = await runAgenticParser({
       feedUrls: normalizeFeedUrls(urls),
       dbPath: config.dbPath ?? DEFAULT_DB_PATH,
+      storage: config.storage,
       fetchFullArticle: Boolean(config.fetchFullArticle),
       concurrency: config.concurrency,
+      maxItems: config.maxItems,
       parserOptions: this.options,
       analyzer: config.analyzer,
       model: config.model
     });
+
+    if (feedErrors.length > 0) {
+      console.warn('[agentic-rss-parser] Feed errors:', feedErrors);
+    }
+
+    results.feedErrors = feedErrors;
     return results;
   }
 }

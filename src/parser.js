@@ -7,15 +7,6 @@ import { fetchTextWithRedirects } from './core/http.js';
 
 function normalizeItem(feedUrl, item) {
   const link = item.link || '';
-
-  // CORRECTNESS — deduplication stability fix:
-  // The previous fallback chain ended with crypto.randomUUID(), meaning items
-  // with no link/guid/title/pubDate received a fresh UUID every run. This
-  // silently defeated deduplication — the same item was re-processed on every
-  // execution. Replacing UUID with an empty-string sentinel produces a stable
-  // (if non-unique) hash tied to feedUrl alone, which at least makes the ID
-  // deterministic. Callers that need uniqueness per blank item can extend the
-  // idSource with an index or sequence number.
   const idSource = link || item.guid || item.title || item.pubDate || '';
   const id = crypto
     .createHash('sha256')
@@ -31,35 +22,11 @@ function normalizeItem(feedUrl, item) {
   };
 }
 
-/**
- * Run the agentic parser pipeline over one or more feed URLs.
- *
- * @param {object} config
- * @param {string[]} config.feedUrls        - Feed URLs to process (required, non-empty array).
- * @param {string}   config.dbPath          - Absolute path to the SQLite database (required
- *                                            when no custom storage adapter is provided).
- * @param {object}   [config.storage]       - Custom StorageAdapter. When provided, dbPath is
- *                                            ignored. Use createMemoryStorage() for testing or
- *                                            environments without node:sqlite (Node 18/20).
- * @param {boolean}  [config.fetchFullArticle] - Fetch full article body for context.
- * @param {number}   [config.concurrency]   - Max parallel feed fetches (default: 1, max: 16).
- * @param {object}   [config.parserOptions] - Options forwarded to parseFeedXml.
- * @param {Function} [config.analyzer]      - Custom analyzer function.
- * @param {object}   [config.model]         - Provider/model config for createAnalyzer.
- *
- * @returns {Promise<{ results: Array, feedErrors: Array }>}
- *   results    — successfully analysed { item, analysis } pairs.
- *   feedErrors — per-feed errors: { feedUrl, error } for feeds that failed.
- */
 export async function runAgenticParser(config) {
   if (!Array.isArray(config?.feedUrls) || config.feedUrls.length === 0) {
     throw new TypeError('runAgenticParser: config.feedUrls must be a non-empty array of URL strings');
   }
 
-  // Accept either a pre-built storage adapter or a dbPath string.
-  // This allows Node 18/20 consumers (no node:sqlite) to supply their own
-  // adapter (e.g. createMemoryStorage() or a better-sqlite3 wrapper) while
-  // keeping the default createStorage() path for Node 22.5+ users.
   let storage;
   if (config.storage) {
     storage = config.storage;
@@ -76,6 +43,7 @@ export async function runAgenticParser(config) {
   const feedErrors = [];
   const analyzer = config.analyzer ?? (await createAnalyzer(config.model));
   const concurrency = normalizeConcurrency(config.concurrency);
+  const maxItems = normalizeMaxItems(config.maxItems);
 
   try {
     await mapWithConcurrency(
@@ -84,12 +52,13 @@ export async function runAgenticParser(config) {
       async (feedUrl) => {
         try {
           const result = await fetchTextWithRedirects(feedUrl, config.parserOptions);
-          // fetchTextWithRedirects returns null on 304 Not Modified (feed unchanged).
           if (result === null) return;
           const xml = result.text;
           const feed = parseFeedXml(xml, config.parserOptions);
 
           for (const item of feed.items) {
+            if (maxItems !== null && results.length >= maxItems) break;
+
             const normalized = normalizeItem(feedUrl, item);
             if (storage.hasProcessed(normalized.id)) continue;
 
@@ -113,7 +82,6 @@ export async function runAgenticParser(config) {
 
     return { results, feedErrors };
   } finally {
-    // Only close storage if we created it internally (not caller-supplied).
     if (!config.storage) {
       storage.close();
     }
@@ -126,17 +94,13 @@ function normalizeConcurrency(concurrency) {
   return Math.min(16, Math.trunc(parsed));
 }
 
-/**
- * Run `worker` over every element in `items` with at most `limit`
- * concurrent workers. Returns void — results are accumulated via
- * the worker's own side-effects (closure over outer arrays).
- *
- * Uses a shared iterator so the concurrency slots self-schedule:
- * each worker calls next() on the shared iterator, meaning no slot
- * ever sits idle while work remains. The shared mutable index
- * counter approach is avoided entirely — iterator protocol is
- * inherently safe across concurrent coroutines in the same thread.
- */
+function normalizeMaxItems(maxItems) {
+  if (maxItems === undefined || maxItems === null) return null;
+  const parsed = Number(maxItems);
+  if (!Number.isFinite(parsed) || parsed < 1) return null;
+  return Math.trunc(parsed);
+}
+
 async function mapWithConcurrency(items, limit, worker) {
   const iter = items[Symbol.iterator]();
 
