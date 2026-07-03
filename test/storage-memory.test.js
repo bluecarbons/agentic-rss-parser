@@ -124,21 +124,53 @@ test('createMemoryStorage — getAnalyses pagination (limit + offset)', () => {
   for (const id of ids2) assert.ok(!ids1.has(id), 'pages must not overlap');
 });
 
-test('createMemoryStorage — pruneOlderThan removes old entries', async () => {
+test('createMemoryStorage — pruneOlderThan removes old entries', () => {
   const storage = createMemoryStorage();
-  const item = makeItem();
+
+  // Backdate processed_at to 2 days ago via the optional processedAt field.
+  // This is deterministic — no setTimeout, no wall-clock races.
+  const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString();
+  const item = makeItem({ processedAt: twoDaysAgo });
+
   storage.markProcessed(item);
   storage.saveAnalysis(item.id, makeAnalysis());
 
-  // Pruning 0 days in the future — nothing should be removed
-  // (processed_at is just now, so it's within 0.001 day threshold)
-  // Use a very small TTL to force deletion
-  // We need to wait 1ms to ensure processed_at < cutoff
-  await new Promise((r) => setTimeout(r, 5));
-  const { deletedItems, deletedAnalyses } = storage.pruneOlderThan(0.000001); // ~0.086 ms
+  // TTL = 1 day → item (2 days old) must be pruned
+  const { deletedItems, deletedAnalyses } = storage.pruneOlderThan(1);
   assert.equal(deletedItems, 1);
   assert.equal(deletedAnalyses, 1);
   assert.equal(storage.hasProcessed(item.id), false);
+});
+
+test('createMemoryStorage — pruneOlderThan does NOT remove recent entries', () => {
+  const storage = createMemoryStorage();
+
+  // processedAt = now (default) → must NOT be pruned with a 1-day TTL
+  const item = makeItem({ id: 'recent' });
+  storage.markProcessed(item);
+  storage.saveAnalysis(item.id, makeAnalysis({ id: 'recent-analysis' }));
+
+  const { deletedItems, deletedAnalyses } = storage.pruneOlderThan(1);
+  assert.equal(deletedItems, 0);
+  assert.equal(deletedAnalyses, 0);
+  assert.equal(storage.hasProcessed(item.id), true);
+});
+
+test('createMemoryStorage — pruneOlderThan removes old but keeps recent', () => {
+  const storage = createMemoryStorage();
+
+  const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString();
+  storage.markProcessed(makeItem({ id: 'old', processedAt: twoDaysAgo }));
+  storage.saveAnalysis('old', makeAnalysis({ id: 'old-analysis' }));
+
+  storage.markProcessed(makeItem({ id: 'new' }));
+  storage.saveAnalysis('new', makeAnalysis({ id: 'new-analysis' }));
+
+  const { deletedItems, deletedAnalyses } = storage.pruneOlderThan(1);
+  assert.equal(deletedItems, 1, 'only the old item removed');
+  assert.equal(deletedAnalyses, 1);
+  assert.equal(storage.hasProcessed('old'), false);
+  assert.equal(storage.hasProcessed('new'), true);
 });
 
 test('createMemoryStorage — pruneOlderThan throws on invalid ttlDays', () => {

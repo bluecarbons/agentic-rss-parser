@@ -5,7 +5,7 @@ import { dirname } from 'node:path';
  * StorageAdapter interface (duck-typed — no class required):
  *
  *   hasProcessed(id: string): boolean
- *   markProcessed(item: { id, feedUrl, title, link, publishedAt }): void
+ *   markProcessed(item: { id, feedUrl, title, link, publishedAt, processedAt? }): void
  *   saveAnalysis(itemId: string, analysis: { id, decision, confidence, summary, impact, actionItems, tags }): void
  *   getAnalyses(opts?: GetAnalysesOptions): StorageAnalysisRow[]
  *   pruneOlderThan(ttlDays: number): { deletedItems: number, deletedAnalyses: number }
@@ -80,11 +80,22 @@ export function createStorage(dbPath) {
     },
 
     markProcessed(item) {
-      db
-        .prepare(
-          'INSERT OR IGNORE INTO processed_items (id, feed_url, title, link, published_at) VALUES (?, ?, ?, ?, ?)'
-        )
-        .run(item.id, item.feedUrl, item.title, item.link || null, item.publishedAt ?? null);
+      // processedAt is optional — when supplied (e.g. backfill / migration)
+      // it is used instead of CURRENT_TIMESTAMP so the SQLite row reflects
+      // the original ingest time rather than the current wall-clock time.
+      if (item.processedAt) {
+        db
+          .prepare(
+            'INSERT OR IGNORE INTO processed_items (id, feed_url, title, link, published_at, processed_at) VALUES (?, ?, ?, ?, ?, ?)'
+          )
+          .run(item.id, item.feedUrl, item.title, item.link || null, item.publishedAt ?? null, item.processedAt);
+      } else {
+        db
+          .prepare(
+            'INSERT OR IGNORE INTO processed_items (id, feed_url, title, link, published_at) VALUES (?, ?, ?, ?, ?)'
+          )
+          .run(item.id, item.feedUrl, item.title, item.link || null, item.publishedAt ?? null);
+      }
     },
 
     saveAnalysis(itemId, analysis) {
@@ -209,7 +220,10 @@ export function createMemoryStorage() {
       if (!processed.has(item.id)) {
         processed.set(item.id, {
           ...item,
-          processed_at: new Date().toISOString()
+          // Honour item.processedAt when provided (backfill / migration / tests).
+          // Falls back to the current wall-clock time, matching the SQLite
+          // DEFAULT CURRENT_TIMESTAMP behaviour of createStorage().
+          processed_at: item.processedAt ?? new Date().toISOString()
         });
       }
     },
