@@ -1,8 +1,44 @@
-import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+/**
+ * StorageAdapter interface (duck-typed — no class required):
+ *
+ *   hasProcessed(id: string): boolean
+ *   markProcessed(item: { id, feedUrl, title, link, publishedAt, processedAt? }): void
+ *   saveAnalysis(itemId: string, analysis: { id, decision, confidence, summary, impact, actionItems, tags }): void
+ *   getAnalyses(opts?: GetAnalysesOptions): StorageAnalysisRow[]
+ *   pruneOlderThan(ttlDays: number): { deletedItems: number, deletedAnalyses: number }
+ *   close(): void
+ *
+ * Pass a custom adapter to runAgenticParser({ storage: myAdapter }) to:
+ *   - Use better-sqlite3 on Node 18/20 (no node:sqlite built-in)
+ *   - Use an in-memory store for tests (createMemoryStorage)
+ *   - Swap in any other persistence backend
+ */
+
+/**
+ * Create a SQLite-backed storage adapter using Node's built-in node:sqlite.
+ * Requires Node >= 22.5.0.
+ *
+ * @param {string} dbPath - Absolute path to the SQLite database file.
+ * @returns {StorageAdapter}
+ */
 export function createStorage(dbPath) {
+  // Lazy-import so that environments without node:sqlite (Node < 22.5) can
+  // still import this module as long as they supply their own storage adapter
+  // via runAgenticParser({ storage: ... }) and never call createStorage().
+  let DatabaseSync;
+  try {
+    ({ DatabaseSync } = await_import_sync());
+  } catch {
+    throw new Error(
+      'createStorage() requires Node >= 22.5.0 (node:sqlite built-in). ' +
+      'On Node 18/20, supply a custom storage adapter via runAgenticParser({ storage: createMemoryStorage() }) ' +
+      'or a better-sqlite3-based adapter. See README for details.'
+    );
+  }
+
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
 
@@ -44,22 +80,25 @@ export function createStorage(dbPath) {
     },
 
     markProcessed(item) {
-      // CORRECTNESS: store NULL for link-less items instead of empty string.
-      // The link column is now nullable (TEXT without NOT NULL) so that:
-      //   1. WHERE link IS NULL correctly identifies link-less items.
-      //   2. WHERE link = '' never returns false positives.
-      //   3. Consumers calling getAnalyses() can distinguish "no link" from
-      //      "link was not fetched".
-      db
-        .prepare(
-          'INSERT OR IGNORE INTO processed_items (id, feed_url, title, link, published_at) VALUES (?, ?, ?, ?, ?)'
-        )
-        .run(item.id, item.feedUrl, item.title, item.link || null, item.publishedAt ?? null);
+      // processedAt is optional — when supplied (e.g. backfill / migration)
+      // it is used instead of CURRENT_TIMESTAMP so the SQLite row reflects
+      // the original ingest time rather than the current wall-clock time.
+      if (item.processedAt) {
+        db
+          .prepare(
+            'INSERT OR IGNORE INTO processed_items (id, feed_url, title, link, published_at, processed_at) VALUES (?, ?, ?, ?, ?, ?)'
+          )
+          .run(item.id, item.feedUrl, item.title, item.link || null, item.publishedAt ?? null, item.processedAt);
+      } else {
+        db
+          .prepare(
+            'INSERT OR IGNORE INTO processed_items (id, feed_url, title, link, published_at) VALUES (?, ?, ?, ?, ?)'
+          )
+          .run(item.id, item.feedUrl, item.title, item.link || null, item.publishedAt ?? null);
+      }
     },
 
     saveAnalysis(itemId, analysis) {
-      // INSERT OR IGNORE: preserves the original created_at on duplicate rows.
-      // INSERT OR REPLACE would delete + reinsert, silently resetting created_at.
       db
         .prepare(
           `INSERT OR IGNORE INTO analyses
@@ -78,16 +117,6 @@ export function createStorage(dbPath) {
         );
     },
 
-    /**
-     * Query stored analyses with optional filtering.
-     *
-     * @param {object} [opts]
-     * @param {string}  [opts.feedUrl]   - Filter to a specific feed URL.
-     * @param {string}  [opts.decision]  - Filter by decision: 'relevant' | 'ignore'.
-     * @param {number}  [opts.limit=50]  - Maximum rows to return (max 1000).
-     * @param {number}  [opts.offset=0]  - Pagination offset.
-     * @returns {Array<object>} Array of analysis rows with parsed JSON fields.
-     */
     getAnalyses(opts = {}) {
       const limit = Math.min(
         Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : 50,
@@ -125,23 +154,11 @@ export function createStorage(dbPath) {
       }));
     },
 
-    /**
-     * Prune processed_items and analyses older than `ttlDays` days.
-     * Useful for long-running deployments to prevent unbounded SQLite growth.
-     *
-     * @param {number} ttlDays - Number of days to retain rows (must be > 0).
-     * @returns {{ deletedItems: number, deletedAnalyses: number }}
-     */
     pruneOlderThan(ttlDays) {
       if (typeof ttlDays !== 'number' || ttlDays <= 0) {
         throw new TypeError('pruneOlderThan: ttlDays must be a positive number');
       }
 
-      // CORRECTNESS: use a parameterised binding for the day offset instead of
-      // string interpolation. CAST(? AS TEXT) || ' days' produces the same
-      // SQLite modifier string as the previous `-${Math.trunc(ttlDays)} days`
-      // but avoids false-positive flags from static-analysis tools (Socket,
-      // Semgrep) that treat any string interpolation near SQL as suspicious.
       const days = -Math.trunc(ttlDays);
 
       const deletedAnalyses = db
@@ -165,6 +182,125 @@ export function createStorage(dbPath) {
 
     close() {
       db.close();
+    }
+  };
+}
+
+// Synchronous wrapper so the file stays synchronous at module scope but
+// node:sqlite is only resolved when createStorage() is actually called.
+function await_import_sync() {
+  // This is a synchronous dynamic require pattern safe for CJS-wrapped ESM.
+  // node:sqlite is built-in so there is no network call.
+  return require('node:sqlite');
+}
+
+/**
+ * Create a lightweight in-memory StorageAdapter.
+ *
+ * Suitable for:
+ *   - Unit / integration tests (no filesystem, no Node version constraint)
+ *   - Node 18/20 environments (no node:sqlite built-in)
+ *   - Stateless/ephemeral deployments that don't need persistence
+ *
+ * Data is lost when the process exits. Use createStorage() for persistence.
+ *
+ * @returns {StorageAdapter}
+ */
+export function createMemoryStorage() {
+  const processed = new Map();  // id → item
+  const analyses = new Map();   // id → analysis row
+  const analysesByItemId = new Map(); // itemId → analysis id
+
+  return {
+    hasProcessed(id) {
+      return processed.has(id);
+    },
+
+    markProcessed(item) {
+      if (!processed.has(item.id)) {
+        processed.set(item.id, {
+          ...item,
+          // Honour item.processedAt when provided (backfill / migration / tests).
+          // Falls back to the current wall-clock time, matching the SQLite
+          // DEFAULT CURRENT_TIMESTAMP behaviour of createStorage().
+          processed_at: item.processedAt ?? new Date().toISOString()
+        });
+      }
+    },
+
+    saveAnalysis(itemId, analysis) {
+      if (!analysesByItemId.has(itemId)) {
+        const row = {
+          id: analysis.id,
+          item_id: itemId,
+          decision: analysis.decision,
+          confidence: analysis.confidence,
+          summary: analysis.summary,
+          impact: analysis.impact,
+          actionItems: analysis.actionItems,
+          tags: analysis.tags,
+          created_at: new Date().toISOString()
+        };
+        analyses.set(analysis.id, row);
+        analysesByItemId.set(itemId, analysis.id);
+      }
+    },
+
+    getAnalyses(opts = {}) {
+      const limit = Math.min(
+        Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : 50,
+        1000
+      );
+      const offset = Number.isInteger(opts.offset) && opts.offset >= 0 ? opts.offset : 0;
+
+      let rows = [...analyses.values()].map((a) => {
+        const item = processed.get(a.item_id) || {};
+        return {
+          ...a,
+          feed_url: item.feedUrl || '',
+          title: item.title || '',
+          link: item.link || null,
+          published_at: item.publishedAt || null,
+          processed_at: item.processed_at || null
+        };
+      });
+
+      if (opts.feedUrl) {
+        rows = rows.filter((r) => r.feed_url === opts.feedUrl);
+      }
+      if (opts.decision === 'relevant' || opts.decision === 'ignore') {
+        rows = rows.filter((r) => r.decision === opts.decision);
+      }
+
+      rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      return rows.slice(offset, offset + limit);
+    },
+
+    pruneOlderThan(ttlDays) {
+      if (typeof ttlDays !== 'number' || ttlDays <= 0) {
+        throw new TypeError('pruneOlderThan: ttlDays must be a positive number');
+      }
+      const cutoff = new Date(Date.now() - ttlDays * 86_400_000).toISOString();
+      let deletedItems = 0;
+      let deletedAnalyses = 0;
+
+      for (const [id, item] of processed) {
+        if ((item.processed_at || '') < cutoff) {
+          const analysisId = analysesByItemId.get(id);
+          if (analysisId) {
+            analyses.delete(analysisId);
+            analysesByItemId.delete(id);
+            deletedAnalyses++;
+          }
+          processed.delete(id);
+          deletedItems++;
+        }
+      }
+      return { deletedItems, deletedAnalyses };
+    },
+
+    close() {
+      // No-op for in-memory storage — nothing to flush or close.
     }
   };
 }

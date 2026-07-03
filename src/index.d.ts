@@ -91,6 +91,71 @@ export interface AgenticParserResult {
   feedErrors: FeedError[];
 }
 
+// ─── Storage adapter interface ───────────────────────────────────────────────
+
+export interface StorageAnalysisRow {
+  id: string;
+  item_id: string;
+  decision: 'relevant' | 'ignore';
+  confidence: number;
+  summary: string;
+  impact: string;
+  actionItems: string[];
+  tags: string[];
+  created_at: string;
+  feed_url: string;
+  title: string;
+  link: string | null;
+  published_at: string | null;
+  processed_at: string;
+}
+
+export interface GetAnalysesOptions {
+  /** Filter to a specific feed URL. */
+  feedUrl?: string;
+  /** Filter by decision value. */
+  decision?: 'relevant' | 'ignore';
+  /** Maximum rows to return (default: 50, max: 1000). */
+  limit?: number;
+  /** Pagination offset (default: 0). */
+  offset?: number;
+}
+
+/**
+ * Duck-typed StorageAdapter interface.
+ * Any object implementing these methods can be passed as `config.storage`
+ * to `runAgenticParser`, bypassing the node:sqlite dependency entirely.
+ *
+ * Built-in factories:
+ *   - createStorage(dbPath)   — SQLite via node:sqlite (Node >= 22.5)
+ *   - createMemoryStorage()   — In-memory (Node 18+, testing, ephemeral deploys)
+ */
+export interface StorageAdapter {
+  hasProcessed(id: string): boolean;
+  markProcessed(item: {
+    id: string;
+    feedUrl: string;
+    title: string;
+    link: string;
+    publishedAt?: string | null;
+  }): void;
+  saveAnalysis(
+    itemId: string,
+    analysis: {
+      id: string;
+      decision: string;
+      confidence: number;
+      summary: string;
+      impact: string;
+      actionItems: string[];
+      tags: string[];
+    }
+  ): void;
+  getAnalyses(opts?: GetAnalysesOptions): StorageAnalysisRow[];
+  pruneOlderThan(ttlDays: number): { deletedItems: number; deletedAnalyses: number };
+  close(): void;
+}
+
 // ─── Config shapes ───────────────────────────────────────────────────────────
 
 export interface AnalyzerConfig {
@@ -101,31 +166,37 @@ export interface AnalyzerConfig {
   /**
    * Full replacement signal list for the heuristic provider.
    * When set, DEFAULT_HEURISTIC_SIGNALS are ignored entirely.
-   *
-   * @example
-   * // Startup-focused signals — completely replaces the dev-tool defaults
-   * signals: ['funding', 'series', 'yc', 'ipo', 'acquisition', 'launch', 'ai', 'b2b']
    */
   signals?: string[];
   /**
    * Extra signals appended to DEFAULT_HEURISTIC_SIGNALS.
-   * Use instead of `signals` when you want to extend the defaults, not replace them.
-   *
-   * @example
-   * extraSignals: ['funding', 'acquisition', 'launch']
    */
   extraSignals?: string[];
   /**
    * Minimum number of matched signals required to mark an item 'relevant'.
-   * Defaults to 3. Reduce to 1-2 for broader recall; increase to 4-5 for precision.
+   * Defaults to 3.
    */
   threshold?: number;
 }
 
 export interface AgenticParserConfig {
   feedUrls: string[];
-  /** Absolute path to the SQLite database file. */
-  dbPath: string;
+  /**
+   * Absolute path to the SQLite database file.
+   * Required unless `storage` is provided.
+   */
+  dbPath?: string;
+  /**
+   * Custom StorageAdapter. When provided, `dbPath` is ignored.
+   *
+   * Use `createMemoryStorage()` for tests or Node 18/20 environments
+   * where `node:sqlite` is not available.
+   *
+   * @example
+   * import { createMemoryStorage } from 'agentic-rss-parser';
+   * await runAgenticParser({ feedUrls: [...], storage: createMemoryStorage() });
+   */
+  storage?: StorageAdapter;
   fetchFullArticle?: boolean;
   concurrency?: number;
   parserOptions?: ParserOptions;
@@ -136,6 +207,11 @@ export interface AgenticParserConfig {
 export interface ParseFeedConfig {
   /** Override the default DB path (resolved to CWD/data/rss-agent.db when installed as a package). */
   dbPath?: string;
+  /**
+   * Custom StorageAdapter. When provided, `dbPath` is ignored.
+   * See AgenticParserConfig.storage for details.
+   */
+  storage?: StorageAdapter;
   fetchFullArticle?: boolean;
   concurrency?: number;
   analyzer?: (input: { item: ParserFeedItem; context: string }) => unknown;
@@ -193,11 +269,6 @@ export function analyzeFeedItem(
 
 /**
  * Heuristic signal-based analyser — no LLM or API key required.
- * Single source of truth; also used internally by the heuristic provider.
- *
- * @param item    - Feed item to analyse.
- * @param context - Optional expanded article text.
- * @param options - Signal customization: `signals` (replace), `extraSignals` (append), `threshold`.
  */
 export function heuristicAnalyze(
   item: ParserFeedItem,
@@ -209,82 +280,32 @@ export function heuristicAnalyze(
   }
 ): AnalysisResult;
 
-/**
- * The default heuristic signal list (dev/tech-tool focused).
- * Export so callers can inspect it before deciding to extend or replace it.
- */
 export const DEFAULT_HEURISTIC_SIGNALS: string[];
 
-/**
- * Resolve the effective signal list from user-supplied options.
- * Priority: options.signals > DEFAULT + options.extraSignals > DEFAULT.
- */
 export function resolveSignals(
   options?: { signals?: string[]; extraSignals?: string[] }
 ): string[];
 
 export function fetchFullArticle(url: string): Promise<string>;
 
-export interface StorageAnalysisRow {
-  id: string;
-  item_id: string;
-  decision: 'relevant' | 'ignore';
-  confidence: number;
-  summary: string;
-  impact: string;
-  actionItems: string[];
-  tags: string[];
-  created_at: string;
-  feed_url: string;
-  title: string;
-  link: string;
-  published_at: string | null;
-  processed_at: string;
-}
+/**
+ * Create a SQLite-backed StorageAdapter using node:sqlite (Node >= 22.5.0).
+ * Throws a descriptive error on older Node versions — use createMemoryStorage()
+ * or a better-sqlite3 adapter as a drop-in replacement.
+ */
+export function createStorage(dbPath: string): StorageAdapter;
 
-export interface GetAnalysesOptions {
-  /** Filter to a specific feed URL. */
-  feedUrl?: string;
-  /** Filter by decision value. */
-  decision?: 'relevant' | 'ignore';
-  /** Maximum rows to return (default: 50, max: 1000). */
-  limit?: number;
-  /** Pagination offset (default: 0). */
-  offset?: number;
-}
-
-export function createStorage(dbPath: string): {
-  hasProcessed(id: string): boolean;
-  markProcessed(item: {
-    id: string;
-    feedUrl: string;
-    title: string;
-    link: string;
-    publishedAt?: string | null;
-  }): void;
-  saveAnalysis(
-    itemId: string,
-    analysis: {
-      id: string;
-      decision: string;
-      confidence: number;
-      summary: string;
-      impact: string;
-      actionItems: string[];
-      tags: string[];
-    }
-  ): void;
-  /**
-   * Query stored analyses with optional filtering and pagination.
-   */
-  getAnalyses(opts?: GetAnalysesOptions): StorageAnalysisRow[];
-  /**
-   * Prune processed_items and analyses older than `ttlDays` days.
-   * Returns counts of deleted rows in each table.
-   */
-  pruneOlderThan(ttlDays: number): { deletedItems: number; deletedAnalyses: number };
-  close(): void;
-};
+/**
+ * Create a lightweight in-memory StorageAdapter.
+ *
+ * Suitable for:
+ *  - Unit / integration tests (no filesystem, no Node version constraint)
+ *  - Node 18 / 20 environments (no node:sqlite built-in)
+ *  - Stateless / ephemeral deployments that don't need persistence
+ *
+ * Data is lost when the process exits.
+ */
+export function createMemoryStorage(): StorageAdapter;
 
 export function createAnalyzer(
   config?: AnalyzerConfig
@@ -292,10 +313,6 @@ export function createAnalyzer(
 
 // ─── MCP server namespace ────────────────────────────────────────────────────
 
-/**
- * Types for the MCP server entry-point.
- * Import via: import type { McpTool } from 'agentic-rss-parser/mcp'
- */
 export * as McpServer from './mcp/server.js';
 
 // ─── Default export ──────────────────────────────────────────────────────────
