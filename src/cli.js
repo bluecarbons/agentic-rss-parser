@@ -1,11 +1,7 @@
 #!/usr/bin/env node
-import { fileURLToPath } from 'node:url';
-import { join, dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { runAgenticParser } from './parser.js';
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Default DB path resolved relative to this file — CWD-independent.
-const DEFAULT_DB_PATH = join(__dirname, '../data/rss-agent.db');
+import { DEFAULT_DB_PATH } from './core/db-path.js';
 
 function parseArgs(argv) {
   const args = { feeds: [], db: DEFAULT_DB_PATH, fetchFullArticle: false };
@@ -41,7 +37,7 @@ const args = parseArgs(process.argv);
 
 if (!args.feeds.length) {
   console.error(
-    'Usage: agentic-rss-parser --feed <url> [--feed <url>] [--db <path>] [--fetch-full-article]'
+    'Usage: agentic-rss --feed <url> [--feed <url>] [--db <path>] [--fetch-full-article]'
   );
   process.exit(1);
 }

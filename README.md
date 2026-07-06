@@ -10,7 +10,7 @@ An open-source Node.js library for parsing RSS and Atom feeds with built-in heur
 
 Part of the [BLUECARBONS Open Source](https://opensource.bluecarbons.com) initiative — software components powering agentic and agent-dependent products.
 
-> **v1.4.0** — `maxItems` config, `feedErrors` surface, MCP in-process throttling, `DEFAULT_DB_PATH` deduplication, unquoted XML attribute support, `tools.js` consolidation.
+> **v1.4.1** — Security & cohesion audit: `createRequire` replaces bare `require()` in `storage.js` (ESM correctness), `cli.js` now imports `DEFAULT_DB_PATH` from the shared `core/db-path.js` module, CLI usage message corrected to `agentic-rss` binary name.
 
 ---
 
@@ -42,55 +42,6 @@ All `parseURL`, `parseString`, `parseFile`, `customFields`, and callback-style A
 
 ---
 
-## Quick Start
-
-```js
-import { createParser } from 'agentic-rss-parser';
-
-const parser = createParser();
-const results = await parser.parseFeed('https://hnrss.org/frontpage');
-
-for (const { item, analysis } of results) {
-  if (analysis.decision === 'relevant') {
-    console.log(`[${analysis.confidence}%] ${item.title}`);
-    console.log('Tags:', analysis.tags.join(', '));
-  }
-}
-
-// Errors per feed are surfaced separately
-if (results.feedErrors?.length) console.warn(results.feedErrors);
-```
-
-No API key needed — the default `heuristic` provider works fully offline.
-
----
-
-## Providers
-
-```js
-// OpenAI
-await parser.parseFeed(url, {
-  model: { provider: 'openai', apiKey: process.env.OPENAI_API_KEY }
-});
-
-// Anthropic
-await parser.parseFeed(url, {
-  model: { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY }
-});
-
-// Local Ollama
-await parser.parseFeed(url, {
-  model: { provider: 'local', baseURL: 'http://localhost:11434/v1', model: 'llama3' }
-});
-
-// Custom heuristic signals
-await parser.parseFeed(url, {
-  model: { provider: 'heuristic', extraSignals: ['funding', 'launch'], threshold: 2 }
-});
-```
-
----
-
 ## MCP Server
 
 Exposes `fetch_rss_feed` and `fetch_full_article` as MCP tools over stdio.
@@ -117,8 +68,8 @@ Claude Desktop config (`claude_desktop_config.json`):
 ## CLI
 
 ```bash
-npx agentic-rss https://hnrss.org/frontpage
-npx agentic-rss https://hnrss.org/frontpage --provider openai --limit 5
+npx agentic-rss --feed https://hnrss.org/frontpage
+npx agentic-rss --feed https://hnrss.org/frontpage --db ./data/my.db --fetch-full-article
 ```
 
 ---
@@ -152,17 +103,7 @@ See [SECURITY.md](./SECURITY.md) for the vulnerability disclosure policy.
 
 ## Documentation
 
-Full documentation is available in the **[GitHub Wiki](https://github.com/bluecarbons/agentic-rss-parser/wiki)**:
-
-- [Installation](https://github.com/bluecarbons/agentic-rss-parser/wiki/Installation)
-- [Quick Start](https://github.com/bluecarbons/agentic-rss-parser/wiki/Quick-Start)
-- [Architecture](https://github.com/bluecarbons/agentic-rss-parser/wiki/Architecture)
-- [API Reference](https://github.com/bluecarbons/agentic-rss-parser/wiki/API-Reference)
-- [Configuration](https://github.com/bluecarbons/agentic-rss-parser/wiki/Configuration)
-- [Storage Adapters](https://github.com/bluecarbons/agentic-rss-parser/wiki/Storage-Adapters)
-- [MCP Server](https://github.com/bluecarbons/agentic-rss-parser/wiki/MCP-Server)
-- [CLI](https://github.com/bluecarbons/agentic-rss-parser/wiki/CLI)
-- [Contributing](https://github.com/bluecarbons/agentic-rss-parser/wiki/Contributing)
+Full documentation — installation, quick start, API reference, architecture, configuration, storage adapters, MCP server, CLI, and contributing — is available in the **[GitHub Wiki](https://github.com/bluecarbons/agentic-rss-parser/wiki)**.
 
 ---
 
