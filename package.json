@@ -5,19 +5,41 @@
   "engines": {
     "node": ">=22.5.0"
   },
-  "description": "An open-source agentic RSS and Atom parser with heuristic + LLM analysis, deduplication, enrichment, and MCP-ready tooling.",
+  "description": "Node.js RSS and Atom feed parser with agentic analysis, LLM enrichment, heuristic deduplication, and Model Context Protocol (MCP) server tooling. Drop-in rss-parser compatible. Built on fast-xml-parser with SSRF protection, pluggable storage adapters, and Claude Desktop integration.",
   "keywords": [
     "rss",
     "atom",
-    "parser",
+    "feed-parser",
+    "rss-parser",
     "agentic",
+    "agentic-ai",
     "mcp",
+    "model-context-protocol",
+    "llm",
+    "ai-agent",
+    "claude",
+    "openai",
+    "anthropic",
+    "ollama",
     "nodejs",
     "typescript",
     "feeds",
-    "open-source"
+    "feed-aggregator",
+    "content-pipeline",
+    "deduplication",
+    "enrichment",
+    "xml-parser",
+    "fast-xml-parser",
+    "rss-reader",
+    "atom-parser",
+    "open-source",
+    "bluecarbons"
   ],
   "license": "MIT",
+  "author": {
+    "name": "BLUECARBONS",
+    "url": "https://opensource.bluecarbons.com"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -30,6 +52,10 @@
   "homepage": "https://github.com/bluecarbons/agentic-rss-parser#readme",
   "bugs": {
     "url": "https://github.com/bluecarbons/agentic-rss-parser/issues"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/bluecarbons"
   },
   "bin": {
     "agentic-rss": "bin/agentic-rss.js",
@@ -55,6 +81,7 @@
     "release:pnpm": "corepack pnpm publish --access public --no-git-checks"
   },
   "packageManager": "pnpm@9.15.4",
+  "engines.pnpm": ">=9.0.0",
   "files": [
     "bin",
     "src",
