@@ -45,6 +45,19 @@ export async function runAgenticParser(config) {
   const concurrency = normalizeConcurrency(config.concurrency);
   const maxItems = normalizeMaxItems(config.maxItems);
 
+  // BUGFIX — maxItems race across concurrent feeds:
+  // Feeds are processed concurrently (mapWithConcurrency), all sharing this
+  // one counter. The previous check read `results.length` (only updated
+  // after the awaited analyzeFeedItem/storage calls completed), so two
+  // feeds' loops could both pass "results.length >= maxItems" before either
+  // had pushed, letting the final result count slightly exceed maxItems.
+  // `reservedItems` is incremented synchronously, in the same tick as the
+  // check that guards it — no `await` occurs between the check and the
+  // increment — so under Node's single-threaded cooperative scheduling no
+  // other feed's loop iteration can run in between. That makes the
+  // check-and-reserve atomic even though the two feed loops interleave.
+  let reservedItems = 0;
+
   try {
     await mapWithConcurrency(
       config.feedUrls,
@@ -57,10 +70,13 @@ export async function runAgenticParser(config) {
           const feed = parseFeedXml(xml, config.parserOptions);
 
           for (const item of feed.items) {
-            if (maxItems !== null && results.length >= maxItems) break;
+            if (maxItems !== null && reservedItems >= maxItems) break;
 
             const normalized = normalizeItem(feedUrl, item);
             if (storage.hasProcessed(normalized.id)) continue;
+
+            // Reserve the slot before the first `await` below.
+            reservedItems += 1;
 
             const analysis = await analyzeFeedItem(normalized, {
               fetchFullArticle: config.fetchFullArticle,

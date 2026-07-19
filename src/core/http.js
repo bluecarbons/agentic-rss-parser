@@ -1,3 +1,4 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
 import pkg from '../../package.json' with { type: 'json' };
 
 // Default User-Agent string. Callers can override via options.userAgent or options.headers['user-agent'].
@@ -7,40 +8,99 @@ const DEFAULT_USER_AGENT = `agentic-rss-parser/${pkg.version}`;
 // or malicious feed responses.
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
 
+const PRIVATE_HOSTNAME_PATTERNS = [/^localhost$/i];
+
 /**
- * Private / loopback address ranges that must not be reachable via feed or
- * article fetches. Blocking these prevents SSRF attacks where a crafted feed
- * redirect targets an internal service (AWS metadata at 169.254.169.254,
- * Redis at 127.0.0.1:6379, or any RFC-1918 host on the local network).
+ * Numeric IPv4 private/loopback/reserved range check.
  *
- * IPv6 loopback (::1) and ULA ranges (fc00::/7, fd00::/8) are also blocked.
+ * SECURITY: this is used both for literal IPv4 addresses appearing directly
+ * in a URL and for addresses returned by DNS resolution (see
+ * `assertResolvedHostSafe` below) — the latter is what closes the
+ * DNS-rebinding gap: a hostname string like "evil.example.com" doesn't match
+ * any hostname regex, but if it *resolves* to 127.0.0.1 or
+ * 169.254.169.254, the connection must still be rejected.
+ *
+ * @param {string} ip - Dotted-quad IPv4 address.
+ * @returns {boolean}
  */
-const PRIVATE_HOSTNAME_PATTERNS = [
-  /^localhost$/i,
-  /^127\./,                                       // 127.0.0.0/8 loopback
-  /^10\./,                                        // 10.0.0.0/8 private
-  /^192\.168\./,                                  // 192.168.0.0/16 private
-  /^172\.(1[6-9]|2\d|3[01])\./,                  // 172.16.0.0/12 private
-  /^169\.254\./,                                  // 169.254.0.0/16 link-local / AWS metadata
-  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,   // 100.64.0.0/10 carrier-grade NAT
-  /^::1$/,                                        // IPv6 loopback
-  /^\[::1\]$/,                                    // IPv6 loopback (bracket form)
-  /^fc[0-9a-f]{2}:/i,                            // IPv6 ULA fc00::/7
-  /^fd[0-9a-f]{2}:/i,                            // IPv6 ULA fd00::/8
-];
+function isPrivateIPv4(ip) {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
+  if (!m) return false;
+  const octets = m.slice(1, 5).map(Number);
+  if (octets.some((o) => o > 255)) return false;
+  const [a, b] = octets;
+  if (a === 127) return true;                              // 127.0.0.0/8 loopback
+  if (a === 10) return true;                                // 10.0.0.0/8 private
+  if (a === 192 && b === 168) return true;                  // 192.168.0.0/16 private
+  if (a === 172 && b >= 16 && b <= 31) return true;          // 172.16.0.0/12 private
+  if (a === 169 && b === 254) return true;                   // 169.254.0.0/16 link-local / AWS metadata
+  if (a === 100 && b >= 64 && b <= 127) return true;          // 100.64.0.0/10 carrier-grade NAT
+  if (a === 0) return true;                                   // 0.0.0.0/8 "this network"
+  if (ip === '255.255.255.255') return true;                  // limited broadcast
+  return false;
+}
+
+/**
+ * Extract the embedded IPv4 address from an IPv4-mapped IPv6 literal, in
+ * either its dotted-quad form (::ffff:127.0.0.1 — how a caller is likely to
+ * write it) or the compressed hex-group form Node's own URL parser
+ * normalises it to (::ffff:7f00:1 — e.g. `new URL('http://[::ffff:127.0.0.1]/')
+ * .hostname` returns "[::ffff:7f00:1]"). Returns null if `ip` isn't either form.
+ *
+ * @param {string} lower - Lowercased, unbracketed IPv6 address.
+ * @returns {string|null} Dotted-quad IPv4 string, or null.
+ */
+function extractIPv4Mapped(lower) {
+  const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(lower);
+  if (dotted) return dotted[1];
+
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower);
+  if (hex) {
+    const hi = parseInt(hex[1], 16);
+    const lo = parseInt(hex[2], 16);
+    return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+  }
+  return null;
+}
+
+/**
+ * Numeric IPv6 private/loopback/reserved range check, including the
+ * fe80::/10 link-local range that the previous implementation omitted, and
+ * IPv4-mapped addresses (::ffff:a.b.c.d, in either dotted or Node's
+ * normalised hex-group form) which are unwrapped and re-checked against
+ * isPrivateIPv4.
+ *
+ * @param {string} ip - IPv6 address, with or without surrounding brackets.
+ * @returns {boolean}
+ */
+function isPrivateIPv6(ip) {
+  const lower = ip.toLowerCase().replace(/^\[|\]$/g, '');
+  if (lower === '::1' || lower === '::') return true;         // loopback / unspecified
+  if (/^fc[0-9a-f]{2}:/.test(lower) || /^fd[0-9a-f]{2}:/.test(lower)) return true; // ULA fc00::/7
+  if (/^fe[89ab][0-9a-f]:/.test(lower)) return true;          // link-local fe80::/10
+  const mapped = extractIPv4Mapped(lower);
+  if (mapped) return isPrivateIPv4(mapped);
+  return false;
+}
+
+function isPrivateAddress(ip) {
+  return ip.includes(':') ? isPrivateIPv6(ip) : isPrivateIPv4(ip);
+}
 
 /**
  * Assert that a URL string uses an allowed protocol (http or https only)
- * and does not target a private or loopback address.
+ * and — when the hostname is itself a literal IP address, or the plain
+ * string "localhost" — does not target a private or loopback address.
  *
- * Rejects file://, javascript://, ftp://, and any other scheme to prevent
- * SSRF and local file inclusion attacks. Also rejects requests to RFC-1918,
- * loopback, link-local, and carrier-grade NAT ranges to prevent redirect-based
- * SSRF (e.g. a feed that redirects to http://169.254.169.254/latest/meta-data).
+ * This is the fast, synchronous check: it catches SSRF attempts that embed
+ * a private IP literal directly in the URL (e.g. `http://169.254.169.254/`).
+ * It intentionally does NOT resolve hostnames — see `assertResolvedHostSafe`
+ * for the DNS-aware check that closes the rebinding gap where a public
+ * domain name resolves to a private address.
  *
  * @param {string} url
  * @param {{ allowPrivateHosts?: boolean }} [opts]
- * @throws {Error} if the scheme is not http/https or the host is private/loopback.
+ * @throws {Error} if the scheme is not http/https or a literal host is private/loopback.
  */
 export function assertHttpUrl(url, opts = {}) {
   let parsed;
@@ -58,13 +118,115 @@ export function assertHttpUrl(url, opts = {}) {
   // opts.allowPrivateHosts is only intended for test harnesses that spin up
   // localhost servers; never set it in production code paths.
   if (!opts.allowPrivateHosts) {
-    const hostname = parsed.hostname;
-    if (PRIVATE_HOSTNAME_PATTERNS.some((re) => re.test(hostname))) {
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+    if (
+      PRIVATE_HOSTNAME_PATTERNS.some((re) => re.test(hostname)) ||
+      isPrivateAddress(hostname)
+    ) {
       throw new Error(
         `Rejected private or loopback address "${hostname}" — SSRF prevention.`
       );
     }
   }
+}
+
+/**
+ * DNS-aware SSRF check. Resolves the URL's hostname and rejects it if ANY
+ * returned address is private/loopback/link-local.
+ *
+ * SECURITY — closes the DNS-rebinding gap: `assertHttpUrl` only inspects the
+ * hostname string, so a domain like "attacker-controlled.example" that
+ * *resolves* to 127.0.0.1 or the cloud metadata address (169.254.169.254)
+ * previously sailed through unblocked, since neither of those private IPs
+ * appears in the URL text itself. This function performs the actual DNS
+ * lookup and validates the resolved address(es) before the request is made.
+ *
+ * KNOWN LIMITATION: this check and the subsequent `fetch()` call are not
+ * atomic — a DNS record could theoretically change between this lookup and
+ * the connection `fetch()` makes internally (classic TOCTOU rebinding).
+ * Fully closing that gap requires pinning the connection to the specific IP
+ * validated here (e.g. via a custom connection dispatcher), which is out of
+ * scope for a zero-dependency library built on the global `fetch`. This
+ * lookup still blocks the overwhelmingly common case — a stable hostname
+ * that always resolves to an internal address — and meaningfully narrows
+ * the attack window for the rebinding case.
+ *
+ * @param {string} url
+ * @param {{ allowPrivateHosts?: boolean }} [opts]
+ * @throws {Error} if resolution fails or any resolved address is private/loopback.
+ */
+export async function assertResolvedHostSafe(url, opts = {}) {
+  if (opts.allowPrivateHosts) return;
+  const parsed = new URL(url);
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+
+  // Literal IPs and "localhost" are already fully covered by assertHttpUrl;
+  // skip the redundant DNS lookup (dns.lookup on a literal IP is a no-op
+  // anyway, but avoiding it keeps this fast for the common case).
+  if (isPrivateAddress(hostname) || PRIVATE_HOSTNAME_PATTERNS.some((re) => re.test(hostname))) {
+    return;
+  }
+
+  let addresses;
+  try {
+    addresses = await dnsLookup(hostname, { all: true, verbatim: true });
+  } catch (err) {
+    throw new Error(`Could not resolve host "${hostname}": ${err.message}`);
+  }
+
+  for (const { address } of addresses) {
+    if (isPrivateAddress(address)) {
+      throw new Error(
+        `Rejected "${hostname}" — resolves to private/loopback address ${address} (SSRF prevention).`
+      );
+    }
+  }
+}
+
+/**
+ * Read a Response body as text while enforcing `maxBytes` incrementally as
+ * bytes arrive, rather than buffering the full body before checking its
+ * size. A `content-length` header is checked first as a fast pre-flight
+ * rejection, but that header is untrustworthy (absent on chunked responses,
+ * or simply lied about by a malicious server) — the byte-counted stream
+ * read below is the real enforcement and will abort mid-response the moment
+ * the cap is exceeded, regardless of what any header claimed.
+ *
+ * @param {Response} response
+ * @param {number} maxBytes
+ * @param {string} urlForError - Included in the thrown error for context.
+ * @returns {Promise<string>}
+ */
+export async function readBodyWithCap(response, maxBytes, urlForError) {
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    // Fallback for environments where the body isn't a streamable
+    // ReadableStream. Still enforced, just not incrementally.
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+      throw new Error(`Response body too large (max ${maxBytes} bytes) — ${urlForError}`);
+    }
+    return text;
+  }
+
+  const decoder = new TextDecoder();
+  let received = 0;
+  let out = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error(
+        `Response body too large: exceeded ${maxBytes} bytes while streaming — ${urlForError}`
+      );
+    }
+    out += decoder.decode(value, { stream: true });
+  }
+  out += decoder.decode();
+  return out;
 }
 
 /**
@@ -94,6 +256,7 @@ export function assertHttpUrl(url, opts = {}) {
 export async function fetchTextWithRedirects(url, options = {}) {
   const ssrfOpts = { allowPrivateHosts: Boolean(options._allowPrivateHosts) };
   assertHttpUrl(url, ssrfOpts);
+  await assertResolvedHostSafe(url, ssrfOpts);
 
   const timeout = typeof options.timeout === 'number' && options.timeout > 0
     ? options.timeout
@@ -168,6 +331,7 @@ export async function fetchTextWithRedirects(url, options = {}) {
           }
           currentUrl = new URL(location, currentUrl).href;
           assertHttpUrl(currentUrl, ssrfOpts);
+          await assertResolvedHostSafe(currentUrl, ssrfOpts);
           redirectsFollowed += 1;
           continue;
         }
@@ -195,7 +359,9 @@ export async function fetchTextWithRedirects(url, options = {}) {
           throw new Error(`HTTP ${response.status} ${response.statusText} — ${currentUrl}`);
         }
 
-        // Guard against unexpectedly large responses before buffering.
+        // Fast pre-flight rejection when content-length is present and honest.
+        // Not relied upon alone — readBodyWithCap enforces the real cap
+        // incrementally as bytes stream in, regardless of this header.
         const contentLength = Number(response.headers.get('content-length'));
         if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
           throw new Error(
@@ -203,12 +369,7 @@ export async function fetchTextWithRedirects(url, options = {}) {
           );
         }
 
-        const text = await response.text();
-        if (text.length > MAX_BODY_BYTES) {
-          throw new Error(
-            `Response body too large: ${text.length} chars (max ${MAX_BODY_BYTES}) — ${currentUrl}`
-          );
-        }
+        const text = await readBodyWithCap(response, MAX_BODY_BYTES, currentUrl);
 
         // Return text alongside cache-validator headers so callers can store
         // them and send conditional GETs on the next poll cycle.

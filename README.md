@@ -10,7 +10,7 @@ An open-source Node.js library for parsing RSS and Atom feeds with built-in heur
 
 Part of the [BLUECARBONS Open Source](https://opensource.bluecarbons.com) initiative — software components powering agentic and agent-dependent products.
 
-> **v1.4.1** — Security & cohesion audit: `createRequire` replaces bare `require()` in `storage.js` (ESM correctness), `cli.js` now imports `DEFAULT_DB_PATH` from the shared `core/db-path.js` module, CLI usage message corrected to `agentic-rss` binary name.
+> **v1.5.0** — Correctness & SSRF-hardening audit: fixed unquoted-attribute URL truncation in the XML parser, closed a DNS-rebinding gap in SSRF protection (plus IPv6 link-local coverage), replaced buffer-then-check size caps with true incremental streaming caps, fixed a `maxItems` race across concurrent feeds, and gave the CLI and MCP server actual `--provider`/`apiKey` support for the OpenAI/Anthropic/local analyzers. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ---
 
@@ -44,7 +44,7 @@ All `parseURL`, `parseString`, `parseFile`, `customFields`, and callback-style A
 
 ## MCP Server
 
-Exposes `fetch_rss_feed` and `fetch_full_article` as MCP tools over stdio.
+Exposes `fetch_rss_feed` and `fetch_full_article` as MCP tools over stdio. `fetch_rss_feed` accepts an optional `provider` (`heuristic` | `openai` | `anthropic` | `local`) plus `apiKey` / `model` / `baseURL` — `apiKey` falls back to `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` in the server process's environment if omitted.
 
 ```bash
 npx agentic-rss-mcp
@@ -70,6 +70,11 @@ Claude Desktop config (`claude_desktop_config.json`):
 ```bash
 npx agentic-rss --feed https://hnrss.org/frontpage
 npx agentic-rss --feed https://hnrss.org/frontpage --db ./data/my.db --fetch-full-article
+
+# LLM-backed analysis (defaults to the heuristic analyzer when --provider is omitted)
+npx agentic-rss --feed https://hnrss.org/frontpage --provider anthropic --api-key sk-ant-...
+npx agentic-rss --feed https://hnrss.org/frontpage --provider openai --model gpt-4o-mini
+# --api-key can be omitted if OPENAI_API_KEY / ANTHROPIC_API_KEY is set in the environment
 ```
 
 ---

@@ -3,7 +3,23 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
---- 
+---
+
+## [1.5.0] — 2026-07-19
+
+### Fixed
+
+- **`src/core/parser.js`** — Fixed the unquoted-attribute regex truncating any value containing a `/`. This broke the single most common real-world unquoted attribute — a URL — e.g. `<link href=http://example.com/feed>` previously parsed as `href="http:"` plus two bogus boolean attributes (`com`, `feed`). The trailing self-close slash is already stripped before attribute parsing runs, so excluding `/` from the value charclass was unnecessary; unquoted values now stop only at whitespace, `>`, `"`, or `'`.
+- **`src/mcp/server.js`** — `fetch_rss_feed`'s `provider` parameter previously had no way to receive credentials: only `{ provider }` was forwarded to `createAnalyzer`, so selecting `openai` or `anthropic` always failed with "API key is required." Added `apiKey` / `model` / `baseURL` tool arguments, with `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` environment-variable fallback when the argument is omitted.
+- **`src/cli.js`** — Added `--provider`, `--api-key`, `--model`, and `--base-url` flags. Previously the CLI had no way to select an LLM provider at all; every invocation silently used the heuristic analyzer regardless of README claims about LLM analysis.
+- **`src/parser.js`** — Fixed a `maxItems` race across concurrently-processed feeds: the cap check read `results.length`, which was only updated after each item's `await`-ing analysis/storage calls completed, so two feeds could both pass the check before either had pushed a result, letting the total slightly exceed `maxItems`. Replaced with a synchronously-reserved counter incremented in the same tick as the check.
+- **`package.json`** — Removed the stale "Built on fast-xml-parser" description and matching keyword; the package has zero runtime dependencies and always used a hand-rolled parser.
+
+### Security
+
+- **DNS-rebinding gap in SSRF protection** (`src/core/http.js`) — `assertHttpUrl()` only ever inspected the literal hostname string, so a domain that *resolves* to a private/loopback address (rather than embedding one directly in the URL) was not blocked. Added `assertResolvedHostSafe()`, an async DNS-aware check called before the initial request and again after every redirect hop, which resolves the hostname and rejects the request if any returned address is private, loopback, link-local, or carrier-grade-NAT. Documented residual TOCTOU limitation: this check and the connection `fetch()` makes are not atomic, since fully pinning the connection to a validated IP is out of scope for a zero-dependency library built on the global `fetch`.
+- **Missing IPv6 link-local range** (`src/core/http.js`) — the private-address check never covered `fe80::/10`; also added handling for IPv4-mapped IPv6 literals (`::ffff:a.b.c.d`), including Node's own compressed hex-group normalization of that form (`::ffff:7f00:1`).
+- **Non-streaming size caps** (`src/core/http.js`, `src/adapters/provider.js`) — the 5 MB feed / 1 MB LLM-response caps were only checked against `content-length` (absent on chunked responses, or forgeable) and otherwise only *after* `response.text()` had already buffered the full body. Replaced with `readBodyWithCap()`, which counts bytes incrementally as the stream is read and aborts the connection the moment the cap is exceeded, regardless of any header claim.
 
 ## [1.3.6] — 2026-06-29
 

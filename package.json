@@ -1,12 +1,12 @@
 {
   "name": "agentic-rss-parser",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "type": "module",
   "engines": {
     "node": ">=22.5.0",
     "pnpm": ">=9.0.0"
   },
-  "description": "Node.js RSS and Atom feed parser with agentic analysis, LLM enrichment, heuristic deduplication, and Model Context Protocol (MCP) server tooling. Drop-in rss-parser compatible. Built on fast-xml-parser with SSRF protection, pluggable storage adapters, and Claude Desktop integration.",
+  "description": "Node.js RSS and Atom feed parser with agentic analysis, LLM enrichment, heuristic deduplication, and Model Context Protocol (MCP) server tooling. Drop-in rss-parser compatible. Zero-dependency hand-rolled XML parser with SSRF protection, pluggable storage adapters, and Claude Desktop integration.",
   "keywords": [
     "rss",
     "atom",
@@ -30,7 +30,6 @@
     "deduplication",
     "enrichment",
     "xml-parser",
-    "fast-xml-parser",
     "rss-reader",
     "atom-parser",
     "open-source",

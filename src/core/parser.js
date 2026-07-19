@@ -137,12 +137,20 @@ export function parseXml(xml) {
       // Pattern breakdown:
       //   Quoted (double): ([a-zA-Z0-9_:-]+)="([^"]*)"   -- key="val"
       //   Quoted (single): ([a-zA-Z0-9_:-]+)='([^']*)'   -- key='val'
-      //   Unquoted:        ([a-zA-Z0-9_:-]+)=([^\s>"'/]+) -- key=val
+      //   Unquoted:        ([a-zA-Z0-9_:-]+)=([^\s>"']+)  -- key=val
       //   Boolean flag:    ([a-zA-Z0-9_:-]+)(?=[\s>])     -- selected, async
       //
-      // Unquoted values stop at whitespace, >, ", ', or / to avoid over-consuming.
+      // BUGFIX: the unquoted-value branch previously excluded '/' from the
+      // value charclass (to avoid swallowing a self-closing "/>"). But the
+      // trailing self-close slash is already stripped from `content` above
+      // (see `isSelfClose` / `content = tagStr.slice(0, -1)`), so `attrStr`
+      // never contains a bare self-close slash — excluding '/' here only
+      // served to truncate any unquoted URL value at its first slash, e.g.
+      // `<link href=http://example.com/feed>` parsed as `href="http:"` plus
+      // two bogus boolean attributes ("com", "feed"). Unquoted values now
+      // stop only at whitespace, '>', '"', or "'".
       const attrRegex =
-        /([a-zA-Z0-9_:-]+)="([^"]*)"|([a-zA-Z0-9_:-]+)='([^']*)'|([a-zA-Z0-9_:-]+)=([^\s>"'/]+)|([a-zA-Z0-9_:-]+)(?=[\s>/]|$)/g;
+        /([a-zA-Z0-9_:-]+)="([^"]*)"|([a-zA-Z0-9_:-]+)='([^']*)'|([a-zA-Z0-9_:-]+)=([^\s>"']+)|([a-zA-Z0-9_:-]+)(?=[\s>/]|$)/g;
       let attrMatch;
       while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
         if (attrMatch[1] !== undefined) {

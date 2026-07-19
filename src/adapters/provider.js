@@ -1,4 +1,5 @@
 import { AnalysisSchema, heuristicAnalyze } from '../agent.js';
+import { readBodyWithCap } from '../core/http.js';
 
 // Timeout for LLM provider API calls (30 s).
 const LLM_TIMEOUT_MS = 30_000;
@@ -111,6 +112,9 @@ Only output valid JSON.`;
         clearTimeout(timeoutId);
       }
 
+      // Fast pre-flight rejection when content-length is present and honest;
+      // the real cap is enforced incrementally below regardless of this header
+      // (a malicious provider could omit or lie about content-length).
       const contentLength = Number(response.headers.get('content-length'));
       if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
         throw new Error(
@@ -118,12 +122,7 @@ Only output valid JSON.`;
         );
       }
 
-      const text = await response.text();
-      if (text.length > MAX_RESPONSE_BYTES) {
-        throw new Error(
-          `LLM provider response body too large: ${text.length} chars (max ${MAX_RESPONSE_BYTES})`
-        );
-      }
+      const text = await readBodyWithCap(response, MAX_RESPONSE_BYTES, url);
 
       return { response, text };
     }

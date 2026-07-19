@@ -39,6 +39,21 @@ const tools = [
           enum: ['heuristic', 'openai', 'anthropic', 'local'],
           default: 'heuristic',
           description: 'Analysis provider to use. Defaults to heuristic (no API key required).'
+        },
+        apiKey: {
+          type: 'string',
+          description:
+            'API key for the "openai" or "anthropic" provider. Falls back to the ' +
+            'OPENAI_API_KEY / ANTHROPIC_API_KEY environment variable when omitted. ' +
+            'Not required for "heuristic" or "local".'
+        },
+        model: {
+          type: 'string',
+          description: 'Override the default model id for the selected provider.'
+        },
+        baseURL: {
+          type: 'string',
+          description: 'Override the default API base URL (e.g. a self-hosted OpenAI-compatible endpoint).'
         }
       },
       required: ['url']
@@ -164,18 +179,48 @@ async function handleToolCall(name, args) {
         { code: -32602 }
       );
     }
+    if (args.apiKey !== undefined && typeof args.apiKey !== 'string') {
+      throw Object.assign(new Error('Invalid params: apiKey must be a string'), { code: -32602 });
+    }
+    if (args.model !== undefined && typeof args.model !== 'string') {
+      throw Object.assign(new Error('Invalid params: model must be a string'), { code: -32602 });
+    }
+    if (args.baseURL !== undefined && typeof args.baseURL !== 'string') {
+      throw Object.assign(new Error('Invalid params: baseURL must be a string'), { code: -32602 });
+    }
 
     const url = args.url.trim();
     const limit =
       Number.isInteger(args.limit) && args.limit > 0 && args.limit <= 1000 ? args.limit : 10;
     const provider = rawProvider || 'heuristic';
 
-    const analyzer = await createAnalyzer({ provider });
+    // BUGFIX: previously only `{ provider }` was forwarded here, so selecting
+    // "openai" or "anthropic" via this MCP tool always failed with "API key
+    // is required" — there was no way for a caller to actually supply
+    // credentials. apiKey now comes from the explicit arg or, as a
+    // convenience for local Claude Desktop / Cursor / Cline config where env
+    // vars are already set on the MCP server process, from the provider's
+    // conventional environment variable.
+    const envKey =
+      provider === 'openai'
+        ? process.env.OPENAI_API_KEY
+        : provider === 'anthropic'
+          ? process.env.ANTHROPIC_API_KEY
+          : undefined;
+
+    const modelConfig = {
+      provider,
+      apiKey: args.apiKey || envKey,
+      model: args.model,
+      baseURL: args.baseURL
+    };
+
+    const analyzer = await createAnalyzer(modelConfig);
     const { results, feedErrors } = await runAgenticParser({
       feedUrls: [url],
       dbPath: DEFAULT_DB_PATH,
       analyzer,
-      model: { provider },
+      model: modelConfig,
       maxItems: limit
     });
 
