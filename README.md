@@ -82,6 +82,9 @@ npx agentic-rss --feed https://hnrss.org/frontpage --provider openai --model gpt
 ## Key Features
 
 - **RSS 2.0 & Atom** — CDATA, namespaces, HTML entities, `dc:creator`, `media:content`, `content:encoded`
+- **OPML Outline Parser** — extract feed URLs and categories from OPML subscriptions (`parseOpml`)
+- **Polling Watcher** — continuous background watcher event emitter with status listeners (`createFeedWatcher`)
+- **Vector DB Export** — format processed analyses directly for vector database ingestion (`exportForEmbedding`)
 - **`rss-parser` drop-in** — zero migration cost
 - **Heuristic analysis** — configurable signal scoring, no API key required
 - **LLM analysis** — OpenAI, Anthropic, local (Ollama)
@@ -118,7 +121,7 @@ Full documentation — installation, quick start, API reference, architecture, c
 git clone https://github.com/bluecarbons/agentic-rss-parser.git
 cd agentic-rss-parser
 pnpm install
-pnpm test    # 61 passing
+pnpm test    # 75 passing
 pnpm lint
 ```
 

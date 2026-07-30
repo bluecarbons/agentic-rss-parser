@@ -64,10 +64,14 @@ export async function runAgenticParser(config) {
       concurrency,
       async (feedUrl) => {
         try {
-          const result = await fetchTextWithRedirects(feedUrl, config.parserOptions);
+          const effectiveOptions =
+            typeof config.parserOptions === 'function'
+              ? config.parserOptions(feedUrl)
+              : config.parserOptions;
+          const result = await fetchTextWithRedirects(feedUrl, effectiveOptions);
           if (result === null) return;
           const xml = result.text;
-          const feed = parseFeedXml(xml, config.parserOptions);
+          const feed = parseFeedXml(xml, effectiveOptions);
 
           for (const item of feed.items) {
             if (maxItems !== null && reservedItems >= maxItems) break;

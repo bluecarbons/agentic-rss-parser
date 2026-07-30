@@ -163,26 +163,55 @@ export function createStorage(dbPath) {
       if (typeof ttlDays !== 'number' || ttlDays <= 0) {
         throw new TypeError('pruneOlderThan: ttlDays must be a positive number');
       }
-
-      const days = -Math.trunc(ttlDays);
-
+      // Delete analyses whose parent processed_item is older than the TTL.
       const deletedAnalyses = db
         .prepare(
           `DELETE FROM analyses WHERE item_id IN (
              SELECT id FROM processed_items
-             WHERE processed_at < datetime('now', CAST(? AS TEXT) || ' days')
+             WHERE processed_at < datetime('now', ? || ' days')
            )`
         )
-        .run(days).changes;
+        .run(`-${Math.trunc(ttlDays)}`).changes;
 
       const deletedItems = db
         .prepare(
           `DELETE FROM processed_items
-           WHERE processed_at < datetime('now', CAST(? AS TEXT) || ' days')`
+           WHERE processed_at < datetime('now', ? || ' days')`
         )
-        .run(days).changes;
+        .run(`-${Math.trunc(ttlDays)}`).changes;
 
       return { deletedItems, deletedAnalyses };
+    },
+
+    /**
+     * Export stored analyses formatted for vector database embedding.
+     *
+     * @param {object} [opts]
+     * @param {string} [opts.feedUrl] - Filter by feed URL.
+     * @param {string} [opts.decision='relevant'] - Filter decision.
+     * @param {number} [opts.limit=100] - Limit rows.
+     * @returns {Array<{ id: string, text: string, metadata: object }>}
+     */
+    exportForEmbedding(opts = {}) {
+      const rows = this.getAnalyses({
+        feedUrl: opts.feedUrl,
+        decision: opts.decision ?? 'relevant',
+        limit: opts.limit ?? 100
+      });
+
+      return rows.map((row) => ({
+        id: row.id,
+        text: `Title: ${row.title}\nSummary: ${row.summary}\nImpact: ${row.impact}\nTags: ${row.tags.join(', ')}`,
+        metadata: {
+          itemId: row.item_id,
+          feedUrl: row.feed_url,
+          link: row.link,
+          decision: row.decision,
+          confidence: row.confidence,
+          publishedAt: row.published_at,
+          createdAt: row.created_at
+        }
+      }));
     },
 
     close() {
@@ -294,6 +323,37 @@ export function createMemoryStorage() {
         }
       }
       return { deletedItems, deletedAnalyses };
+    },
+
+    /**
+     * Export stored analyses formatted for vector database embedding.
+     *
+     * @param {object} [opts]
+     * @param {string} [opts.feedUrl] - Filter by feed URL.
+     * @param {string} [opts.decision='relevant'] - Filter decision.
+     * @param {number} [opts.limit=100] - Limit rows.
+     * @returns {Array<{ id: string, text: string, metadata: object }>}
+     */
+    exportForEmbedding(opts = {}) {
+      const rows = this.getAnalyses({
+        feedUrl: opts.feedUrl,
+        decision: opts.decision ?? 'relevant',
+        limit: opts.limit ?? 100
+      });
+
+      return rows.map((row) => ({
+        id: row.id,
+        text: `Title: ${row.title}\nSummary: ${row.summary}\nImpact: ${row.impact}\nTags: ${row.tags.join(', ')}`,
+        metadata: {
+          itemId: row.item_id,
+          feedUrl: row.feed_url,
+          link: row.link,
+          decision: row.decision,
+          confidence: row.confidence,
+          publishedAt: row.published_at,
+          createdAt: row.created_at
+        }
+      }));
     },
 
     close() {

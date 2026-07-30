@@ -120,7 +120,42 @@ export interface StorageAdapter {
   ): void;
   getAnalyses(opts?: GetAnalysesOptions): StorageAnalysisRow[];
   pruneOlderThan(ttlDays: number): { deletedItems: number; deletedAnalyses: number };
+  exportForEmbedding(opts?: { feedUrl?: string; decision?: 'relevant' | 'ignore'; limit?: number }): Array<{
+    id: string;
+    text: string;
+    metadata: Record<string, unknown>;
+  }>;
   close(): void;
+}
+
+export interface OpmlOutlineFeed {
+  title: string;
+  xmlUrl: string;
+  htmlUrl?: string;
+  text?: string;
+  category?: string;
+}
+
+export interface OpmlResult {
+  title: string;
+  feeds: OpmlOutlineFeed[];
+}
+
+export interface WatcherConfig extends Omit<AgenticParserConfig, 'parserOptions'> {
+  intervalMs?: number;
+  parserOptions?: ParserOptions | ((feedUrl: string) => ParserOptions);
+}
+
+export interface FeedWatcher {
+  start(): FeedWatcher;
+  stop(): FeedWatcher;
+  pollNow(): Promise<void>;
+  readonly isRunning: boolean;
+  on(event: 'result', listener: (entry: { item: ParserFeedItem; analysis: AnalysisResult }) => void): FeedWatcher;
+  on(event: 'poll', listener: (data: { results: Array<{ item: ParserFeedItem; analysis: AnalysisResult }>; feedErrors: FeedError[]; timestamp: string }) => void): FeedWatcher;
+  on(event: 'feedError', listener: (err: FeedError) => void): FeedWatcher;
+  on(event: 'error', listener: (err: Error) => void): FeedWatcher;
+  on(event: 'stop', listener: () => void): FeedWatcher;
 }
 
 export interface AnalyzerConfig {
@@ -140,7 +175,7 @@ export interface AgenticParserConfig {
   fetchFullArticle?: boolean;
   concurrency?: number;
   maxItems?: number;
-  parserOptions?: ParserOptions;
+  parserOptions?: ParserOptions | ((feedUrl: string) => ParserOptions);
   analyzer?: (input: { item: ParserFeedItem; context: string }) => unknown;
   model?: AnalyzerConfig;
 }
@@ -203,6 +238,8 @@ export function resolveSignals(
   options?: { signals?: string[]; extraSignals?: string[] }
 ): string[];
 export function fetchFullArticle(url: string): Promise<string>;
+export function parseOpml(xml: string): OpmlResult;
+export function createFeedWatcher(config: WatcherConfig): FeedWatcher;
 export function createStorage(dbPath: string): StorageAdapter;
 export function createMemoryStorage(): StorageAdapter;
 export function createAnalyzer(
@@ -213,3 +250,4 @@ export * as McpServer from './mcp/server.js';
 
 declare const ParserDefault: typeof Parser;
 export default ParserDefault;
+

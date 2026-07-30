@@ -5,6 +5,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.0] — 2026-07-30
+
+### Added
+
+- **`src/core/opml.js`** — Introduced zero-dependency `parseOpml(xmlString)` to parse OPML Outline XML files into structured feed lists with outline categories and URLs.
+- **`src/watcher.js`** — Introduced `createFeedWatcher(config)` event emitter for continuous background feed polling, automatic conditional GET headers, and status event listeners (`result`, `poll`, `feedError`, `error`, `stop`).
+- **`src/storage.js`** — Added `exportForEmbedding(opts?)` to SQLite `createStorage` and `createMemoryStorage` adapters to format stored items & analyses into vector-database-ready document payloads.
+- **`src/parser.js`** — Updated `runAgenticParser` to accept a dynamic function resolver for `parserOptions` (`(feedUrl: string) => ParserOptions`), enabling custom per-feed User-Agents and header overrides.
+
 ## [1.5.0] — 2026-07-19
 
 ### Fixed
