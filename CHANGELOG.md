@@ -5,6 +5,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.1] — 2026-07-30
+
+### Fixed
+
+- **`package.json`** — Added `urlStrings: true` to the `socket.ignore` block and verified clean zero-dependency tarball structure to suppress false-positive static analysis alerts on Socket.dev.
+- **`README.md`** — Updated release banner callout to v1.6.1.
+
 ## [1.6.0] — 2026-07-30
 
 ### Added

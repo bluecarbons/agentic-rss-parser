@@ -10,7 +10,7 @@ An open-source Node.js library for parsing RSS and Atom feeds with built-in heur
 
 Part of the [BLUECARBONS Open Source](https://opensource.bluecarbons.com) initiative — software components powering agentic and agent-dependent products.
 
-> **v1.6.0** — Feature Release: introduced zero-dependency OPML subscription outline parsing (`parseOpml`), background polling event watcher (`createFeedWatcher`), vector database payload export helper (`exportForEmbedding`), and dynamic per-feed `parserOptions` resolution. See [CHANGELOG.md](./CHANGELOG.md) for details.
+> **v1.6.1** — Socket.dev Supply-Chain Audit & Hardening: optimized package manifest ignores, added `urlStrings` alert suppression, updated documentation, and bumped release to v1.6.1. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ---
 
