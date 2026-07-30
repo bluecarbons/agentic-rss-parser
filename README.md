@@ -10,7 +10,7 @@ An open-source Node.js library for parsing RSS and Atom feeds with built-in heur
 
 Part of the [BLUECARBONS Open Source](https://opensource.bluecarbons.com) initiative — software components powering agentic and agent-dependent products.
 
-> **v1.5.0** — Correctness & SSRF-hardening audit: fixed unquoted-attribute URL truncation in the XML parser, closed a DNS-rebinding gap in SSRF protection (plus IPv6 link-local coverage), replaced buffer-then-check size caps with true incremental streaming caps, fixed a `maxItems` race across concurrent feeds, and gave the CLI and MCP server actual `--provider`/`apiKey` support for the OpenAI/Anthropic/local analyzers. See [CHANGELOG.md](./CHANGELOG.md) for details.
+> **v1.6.0** — Feature Release: introduced zero-dependency OPML subscription outline parsing (`parseOpml`), background polling event watcher (`createFeedWatcher`), vector database payload export helper (`exportForEmbedding`), and dynamic per-feed `parserOptions` resolution. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ---
 
