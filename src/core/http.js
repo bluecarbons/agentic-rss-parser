@@ -28,15 +28,21 @@ function isPrivateIPv4(ip) {
   if (!m) return false;
   const octets = m.slice(1, 5).map(Number);
   if (octets.some((o) => o > 255)) return false;
-  const [a, b] = octets;
+  const [a, b, c] = octets;
   if (a === 127) return true;                              // 127.0.0.0/8 loopback
-  if (a === 10) return true;                                // 10.0.0.0/8 private
-  if (a === 192 && b === 168) return true;                  // 192.168.0.0/16 private
-  if (a === 172 && b >= 16 && b <= 31) return true;          // 172.16.0.0/12 private
-  if (a === 169 && b === 254) return true;                   // 169.254.0.0/16 link-local / AWS metadata
-  if (a === 100 && b >= 64 && b <= 127) return true;          // 100.64.0.0/10 carrier-grade NAT
-  if (a === 0) return true;                                   // 0.0.0.0/8 "this network"
-  if (ip === '255.255.255.255') return true;                  // limited broadcast
+  if (a === 10) return true;                               // 10.0.0.0/8 private
+  if (a === 192 && b === 168) return true;                 // 192.168.0.0/16 private
+  if (a === 172 && b >= 16 && b <= 31) return true;        // 172.16.0.0/12 private
+  if (a === 169 && b === 254) return true;                 // 169.254.0.0/16 link-local / AWS metadata
+  if (a === 100 && b >= 64 && b <= 127) return true;       // 100.64.0.0/10 carrier-grade NAT
+  if (a === 0) return true;                                // 0.0.0.0/8 "this network"
+  if (a === 192 && b === 0 && c === 2) return true;        // 192.0.2.0/24 TEST-NET-1 (RFC 5737)
+  if (a === 198 && b === 51 && c === 100) return true;     // 198.51.100.0/24 TEST-NET-2 (RFC 5737)
+  if (a === 203 && b === 0 && c === 113) return true;      // 203.0.113.0/24 TEST-NET-3 (RFC 5737)
+  if (a === 192 && b === 0 && c === 0) return true;        // 192.0.0.0/24 IETF Protocol Assignments (RFC 6890)
+  if (a === 198 && (b === 18 || b === 19)) return true;    // 198.18.0.0/15 benchmarking (RFC 2544)
+  if (a >= 224 && a <= 239) return true;                   // 224.0.0.0/4 multicast (RFC 5771)
+  if (a >= 240) return true;                               // 240.0.0.0/4 reserved / broadcast (includes 255.255.255.255)
   return false;
 }
 
@@ -64,11 +70,7 @@ function extractIPv4Mapped(lower) {
 }
 
 /**
- * Numeric IPv6 private/loopback/reserved range check, including the
- * fe80::/10 link-local range that the previous implementation omitted, and
- * IPv4-mapped addresses (::ffff:a.b.c.d, in either dotted or Node's
- * normalised hex-group form) which are unwrapped and re-checked against
- * isPrivateIPv4.
+ * Numeric IPv6 private/loopback/reserved range check.
  *
  * @param {string} ip - IPv6 address, with or without surrounding brackets.
  * @returns {boolean}
@@ -78,6 +80,21 @@ function isPrivateIPv6(ip) {
   if (lower === '::1' || lower === '::') return true;         // loopback / unspecified
   if (/^fc[0-9a-f]{2}:/.test(lower) || /^fd[0-9a-f]{2}:/.test(lower)) return true; // ULA fc00::/7
   if (/^fe[89ab][0-9a-f]:/.test(lower)) return true;          // link-local fe80::/10
+  if (/^fec[0-9a-f]:/.test(lower) || /^fed[0-9a-f]:/.test(lower) || /^fee[0-9a-f]:/.test(lower) || /^fef[0-9a-f]:/.test(lower)) return true; // site-local fec0::/10 (RFC 3879)
+  if (/^2001:0*db8:/i.test(lower)) return true;              // 2001:db8::/32 documentation (RFC 3849)
+  if (/^0*100::/i.test(lower) || /^0064:ff9b:1::/i.test(lower)) return true; // 100::/64 discard-only (RFC 6666)
+  if (/^2002:/i.test(lower)) {
+    // 6to4 prefix: 2002:WWXX:YYZZ::/48 embeds IPv4 WW.XX.YY.ZZ
+    const parts = lower.split(':');
+    if (parts.length >= 3 && parts[1] && parts[2]) {
+      const p1 = parseInt(parts[1], 16);
+      const p2 = parseInt(parts[2], 16);
+      if (!Number.isNaN(p1) && !Number.isNaN(p2)) {
+        const ip4 = `${(p1 >> 8) & 0xff}.${p1 & 0xff}.${(p2 >> 8) & 0xff}.${p2 & 0xff}`;
+        if (isPrivateIPv4(ip4)) return true;
+      }
+    }
+  }
   const mapped = extractIPv4Mapped(lower);
   if (mapped) return isPrivateIPv4(mapped);
   return false;

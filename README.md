@@ -6,11 +6,11 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blueviolet)](https://github.com/bluecarbons/agentic-rss-parser/wiki)
 
-An open-source Node.js library for parsing RSS and Atom feeds with built-in heuristic and LLM-based relevance analysis, deduplication, article enrichment, a CLI, and an MCP server.
+An open-source Node.js library for parsing RSS, Atom, and JSON feeds with built-in heuristic and LLM-based relevance analysis, deduplication, HTTP conditional caching, article enrichment, a CLI, and an MCP server.
 
 Part of the [BLUECARBONS Open Source](https://opensource.bluecarbons.com) initiative — software components powering agentic and agent-dependent products.
 
-> **v1.6.1** — Socket.dev Supply-Chain Audit & Hardening: optimized package manifest ignores, added `urlStrings` alert suppression, updated documentation, and bumped release to v1.6.1. See [CHANGELOG.md](./CHANGELOG.md) for details.
+> **v1.7.0** — Security Hardening & Feature Expansion: Credential isolation for MCP custom base URLs, prototype pollution and DoS hardening in XML parsing, complete SSRF IANA CIDR range blocking, native JSON Feed v1/v1.1 support, Podcast & Media enclosures, persistent ETag HTTP caching, and expanded MCP tools/resources. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ---
 
@@ -44,7 +44,17 @@ All `parseURL`, `parseString`, `parseFile`, `customFields`, and callback-style A
 
 ## MCP Server
 
-Exposes `fetch_rss_feed` and `fetch_full_article` as MCP tools over stdio. `fetch_rss_feed` accepts an optional `provider` (`heuristic` | `openai` | `anthropic` | `local`) plus `apiKey` / `model` / `baseURL` — `apiKey` falls back to `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` in the server process's environment if omitted.
+Exposes MCP tools and resources over stdio for Claude Desktop, Cursor, and Cline:
+
+### Tools
+- `fetch_rss_feed` — Fetch and agentically analyze an RSS, Atom, or JSON feed. Supports heuristic and LLM providers (`openai`, `anthropic`, `local`).
+- `fetch_full_article` — Fetch and HTML-strip article body for context.
+- `search_feed_history` — Search stored intelligence and analyses by keyword.
+- `get_feed_statistics` — Retrieve metrics on processed feeds and relevance ratios.
+- `prune_database` — Prune items older than TTL days.
+
+### Resources
+- `rss://analyses/latest` — Read recent relevant intelligence stored in the SQLite database.
 
 ```bash
 npx agentic-rss-mcp
@@ -81,18 +91,21 @@ npx agentic-rss --feed https://hnrss.org/frontpage --provider openai --model gpt
 
 ## Key Features
 
-- **RSS 2.0 & Atom** — CDATA, namespaces, HTML entities, `dc:creator`, `media:content`, `content:encoded`
+- **RSS 2.0, Atom & JSON Feed** — CDATA, namespaces, HTML entities, `dc:creator`, `media:content`, `content:encoded`, and JSON Feed v1/v1.1 (`parseJsonFeed`)
+- **Podcast & Media Enclosures** — extracts `<enclosure>`, `<media:thumbnail>`, and `itunes:*` metadata
+- **Persistent HTTP Caching** — automatic `ETag` and `If-Modified-Since` (HTTP 304) to avoid re-fetching unchanged feeds
 - **OPML Outline Parser** — extract feed URLs and categories from OPML subscriptions (`parseOpml`)
 - **Polling Watcher** — continuous background watcher event emitter with status listeners (`createFeedWatcher`)
+- **Database Search & Analytics** — keyword search across past analyses (`searchAnalyses`) and stats (`getStatistics`)
 - **Vector DB Export** — format processed analyses directly for vector database ingestion (`exportForEmbedding`)
+- **Custom Prompts & Analyzers** — configurable `systemPrompt` and `promptTemplate` for specialized evaluation
 - **`rss-parser` drop-in** — zero migration cost
 - **Heuristic analysis** — configurable signal scoring, no API key required
 - **LLM analysis** — OpenAI, Anthropic, local (Ollama)
 - **Deduplication** — SHA-256 item IDs, SQLite-backed across runs
 - **Article enrichment** — fetches and HTML-strips full article body
-- **MCP server** — JSON-RPC 2.0 stdio, works with Claude Desktop, Cursor, Cline
+- **MCP server** — JSON-RPC 2.0 stdio with tools and resources
 - **Pluggable storage** — SQLite (Node 22.5+) or in-memory (any Node version)
-- **Custom analyzer** — bring your own `({ item, context }) => AnalysisResult` function
 - **Zero runtime dependencies** — minimal supply-chain surface
 
 ---
@@ -100,9 +113,11 @@ npx agentic-rss --feed https://hnrss.org/frontpage --provider openai --model gpt
 ## Security
 
 - XXE / Billion Laughs — iterative state-machine parser, no recursive entity expansion
+- Max Nesting Depth — hard cap (128 levels) prevents stack overflow DoS
+- Prototype Pollution — `Object.hasOwn` traversal and reserved key sanitization
 - XSS — `<script>`, `<style>`, `<iframe>`, `<object>`, `<embed>`, `<form>` stripped from snippets
 - Prompt injection — control chars stripped, newlines collapsed before LLM interpolation
-- SSRF — `file://`, `javascript://`, RFC-1918, loopback, and link-local targets rejected
+- SSRF Protection — full IANA private, reserved, multicast, documentation, and 6to4 ranges blocked
 - Response size cap — feed responses 5 MB max, LLM responses 1 MB max
 
 See [SECURITY.md](./SECURITY.md) for the vulnerability disclosure policy.
@@ -121,7 +136,7 @@ Full documentation — installation, quick start, API reference, architecture, c
 git clone https://github.com/bluecarbons/agentic-rss-parser.git
 cd agentic-rss-parser
 pnpm install
-pnpm test    # 75 passing
+pnpm test    # 89 passing
 pnpm lint
 ```
 
@@ -130,3 +145,4 @@ pnpm lint
 ## License
 
 MIT © [BLUECARBONS](https://opensource.bluecarbons.com)
+

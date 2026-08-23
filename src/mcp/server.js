@@ -20,15 +20,26 @@ const rl = readline.createInterface({
   terminal: false
 });
 
+import { createStorage } from '../storage.js';
+
+const resources = [
+  {
+    uri: 'rss://analyses/latest',
+    name: 'Latest RSS Feed Analyses',
+    description: 'Recent relevant article analyses stored in the SQLite database.',
+    mimeType: 'application/json'
+  }
+];
+
 const tools = [
   {
     name: 'fetch_rss_feed',
     description:
-      'Fetch and agentically analyse an RSS or Atom feed. Returns structured relevance decisions, confidence scores, summaries, action items, and tags for each feed item.',
+      'Fetch and agentically analyse an RSS, Atom, or JSON feed. Returns structured relevance decisions, confidence scores, summaries, action items, and tags for each feed item.',
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: 'The RSS or Atom feed URL to fetch.' },
+        url: { type: 'string', description: 'The RSS, Atom, or JSON feed URL to fetch.' },
         limit: {
           type: 'number',
           description: 'Maximum number of items to return (default: 10).',
@@ -44,7 +55,7 @@ const tools = [
           type: 'string',
           description:
             'API key for the "openai" or "anthropic" provider. Falls back to the ' +
-            'OPENAI_API_KEY / ANTHROPIC_API_KEY environment variable when omitted. ' +
+            'OPENAI_API_KEY / ANTHROPIC_API_KEY environment variable when omitted and using standard endpoints. ' +
             'Not required for "heuristic" or "local".'
         },
         model: {
@@ -70,6 +81,37 @@ const tools = [
       },
       required: ['url']
     }
+  },
+  {
+    name: 'search_feed_history',
+    description: 'Search previously analyzed articles and intelligence in the persistent database.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Keyword query to search across titles, summaries, impact, and tags.' },
+        limit: { type: 'number', description: 'Maximum number of results to return (default: 20).', default: 20 }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_feed_statistics',
+    description: 'Retrieve statistical metrics about processed feeds, total analyses, and relevance ratios.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'prune_database',
+    description: 'Prune cached feed items and analyses older than a specified number of days.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ttlDays: { type: 'number', description: 'Number of days of data to retain (must be > 0).', default: 30 }
+      },
+      required: ['ttlDays']
+    }
   }
 ];
 
@@ -86,7 +128,7 @@ rl.on('line', async (line) => {
     if (request.method === 'initialize') {
       sendResponse(requestId, {
         protocolVersion: '2024-11-05',
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, resources: {} },
         serverInfo: { name: 'agentic-rss-parser', version: PKG_VERSION }
       });
       return;
@@ -98,6 +140,35 @@ rl.on('line', async (line) => {
 
     if (request.method === 'tools/list') {
       sendResponse(requestId, { tools });
+      return;
+    }
+
+    if (request.method === 'resources/list') {
+      sendResponse(requestId, { resources });
+      return;
+    }
+
+    if (request.method === 'resources/read') {
+      const uri = request.params?.uri;
+      if (uri === 'rss://analyses/latest') {
+        const storage = createStorage(DEFAULT_DB_PATH);
+        try {
+          const analyses = storage.getAnalyses({ limit: 25, decision: 'relevant' });
+          sendResponse(requestId, {
+            contents: [
+              {
+                uri,
+                mimeType: 'application/json',
+                text: JSON.stringify(analyses, null, 2)
+              }
+            ]
+          });
+        } finally {
+          storage.close();
+        }
+        return;
+      }
+      sendError(requestId, -32602, `Unknown resource URI: ${uri}`);
       return;
     }
 
@@ -194,19 +265,27 @@ async function handleToolCall(name, args) {
       Number.isInteger(args.limit) && args.limit > 0 && args.limit <= 1000 ? args.limit : 10;
     const provider = rawProvider || 'heuristic';
 
-    // BUGFIX: previously only `{ provider }` was forwarded here, so selecting
-    // "openai" or "anthropic" via this MCP tool always failed with "API key
-    // is required" — there was no way for a caller to actually supply
-    // credentials. apiKey now comes from the explicit arg or, as a
-    // convenience for local Claude Desktop / Cursor / Cline config where env
-    // vars are already set on the MCP server process, from the provider's
-    // conventional environment variable.
+    // SECURITY: Only fall back to process.env keys if baseURL is undefined or
+    // points to the official standard provider API domain. If a custom / untrusted
+    // baseURL is specified, the caller must explicitly pass args.apiKey to prevent
+    // credential exfiltration to unauthorized endpoints.
+    const isStandardOpenAi = !args.baseURL || /^https:\/\/(?:api\.)?openai\.com(?:\/|$)/i.test(args.baseURL);
+    const isStandardAnthropic = !args.baseURL || /^https:\/\/(?:api\.)?anthropic\.com(?:\/|$)/i.test(args.baseURL);
+
     const envKey =
-      provider === 'openai'
+      provider === 'openai' && isStandardOpenAi
         ? process.env.OPENAI_API_KEY
-        : provider === 'anthropic'
+        : provider === 'anthropic' && isStandardAnthropic
           ? process.env.ANTHROPIC_API_KEY
           : undefined;
+
+    if (args.baseURL) {
+      try {
+        assertHttpUrl(args.baseURL);
+      } catch (err) {
+        throw Object.assign(new Error(`Invalid baseURL: ${err.message}`), { code: -32602 });
+      }
+    }
 
     const modelConfig = {
       provider,
@@ -258,6 +337,64 @@ async function handleToolCall(name, args) {
         }
       ]
     };
+  }
+
+  if (name === 'search_feed_history') {
+    if (typeof args.query !== 'string' || !args.query.trim()) {
+      throw Object.assign(
+        new Error('Invalid params: query is required and must be a non-empty string'),
+        { code: -32602 }
+      );
+    }
+    const storage = createStorage(DEFAULT_DB_PATH);
+    try {
+      const results = storage.searchAnalyses(args.query, { limit: args.limit });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ query: args.query, results }, null, 2)
+          }
+        ]
+      };
+    } finally {
+      storage.close();
+    }
+  }
+
+  if (name === 'get_feed_statistics') {
+    const storage = createStorage(DEFAULT_DB_PATH);
+    try {
+      const stats = storage.getStatistics();
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(stats, null, 2)
+          }
+        ]
+      };
+    } finally {
+      storage.close();
+    }
+  }
+
+  if (name === 'prune_database') {
+    const ttlDays = typeof args.ttlDays === 'number' && args.ttlDays > 0 ? args.ttlDays : 30;
+    const storage = createStorage(DEFAULT_DB_PATH);
+    try {
+      const result = storage.pruneOlderThan(ttlDays);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ ttlDays, ...result }, null, 2)
+          }
+        ]
+      };
+    } finally {
+      storage.close();
+    }
   }
 
   throw new Error(`Tool not found: ${name}`);

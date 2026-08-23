@@ -1,14 +1,14 @@
 # Security Policy
 
-## Supported Versions
+### Supported Versions
 
 Only the latest release on `main` is actively supported with security fixes.
 
 | Version | Supported |
 |---|---|
-| `1.2.x` (current) | ✅ Yes |
-| `1.1.x` | ⚠️ Critical fixes only |
-| `< 1.1.0` | ❌ No |
+| `1.7.x` (current) | ✅ Yes |
+| `1.6.x` | ⚠️ Critical fixes only |
+| `< 1.6.0` | ❌ No |
 
 ---
 
@@ -16,51 +16,39 @@ Only the latest release on `main` is actively supported with security fixes.
 
 **Agentic RSS Parser** was designed from v1.0.8 onwards with an explicit security-first stance.
 
-### XML Parsing — XXE and Billion Laughs
+### XML Parsing — XXE, Billion Laughs & DoS Mitigation
 
-The custom XML engine (`src/core/parser.js`) is a non-recursive, character-by-character state machine:
+The custom XML engine (`src/core/parser.js`) is a streaming, character-by-character state machine:
 
 - **No DOCTYPE / ENTITY expansion** — both are silently ignored, making XXE (XML External Entity) attacks structurally impossible.
-- **No recursive descent** — deeply nested XML trees do not cause stack overflows.
+- **Max nesting depth limit** — `MAX_XML_DEPTH = 128` prevents recursive nesting stack overflow DoS attacks.
+- **Safe entity code points** — Unicode entity decoding checks code point validity (`0 <= cp <= 0x10FFFF`) to prevent runtime `RangeError` crashes.
+- **Prototype pollution immunity** — node property mapping uses `Object.hasOwn()` and sanitizes dangerous keys (`__proto__`, `constructor`, `prototype`).
 - **Billion Laughs immune** — without entity expansion, recursive entity references cannot amplify into memory exhaustion.
 
-### HTTP Layer
+### HTTP Layer & SSRF Protection
 
 `src/core/http.js` enforces several protections on all outbound requests:
 
-- **Protocol allowlist** — only `http:` and `https:` are accepted. `file://`, `javascript://`, `ftp://`, and all other schemes are rejected before any network call (prevents SSRF and local file inclusion).
-- **Redirect cap** — maximum 5 redirects followed; subsequent redirects throw an error (prevents redirect-loop amplification).
+- **Protocol allowlist** — only `http:` and `https:` are accepted. `file://`, `javascript://`, `ftp://`, and all other schemes are rejected before any network call.
+- **Full IANA reserved range blocking** — checks RFC 1918 private IPv4, link-local (`169.254.0.0/16`), loopback (`127.0.0.0/8`), carrier-grade NAT (`100.64.0.0/10`), documentation (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`), multicast (`224.0.0.0/4`), reserved Class E (`240.0.0.0/4`), 6to4 (`2002::/16`), and discard (`100::/64`) ranges.
+- **DNS resolution check** — `assertResolvedHostSafe()` performs a DNS lookup prior to fetching and verifies that resolved addresses are safe.
+- **Redirect cap** — maximum 5 redirects followed; subsequent redirects throw an error.
 - **Timeout** — all requests time out after 10 seconds by default (configurable via `options.timeout`).
-- **Response size cap** — feed responses are hard-capped at 5 MB. The cap is checked against `Content-Length` (fast path) and re-checked after buffering chunked responses, preventing OOM via large or malicious payloads.
-- **User-Agent override** — the `userAgent` option (v1.2.0+) allows callers to override the default UA. This is intentional and documented; it is not a security bypass.
-- **Deployment note** — for multi-tenant or user-supplied URL workflows, place this library behind your own proxy or allowlist layer. The package validates schemes and common private/loopback targets, but DNS-rebinding defenses belong at the deployment boundary where you control DNS resolution and egress policy.
+- **Streaming response size cap** — feed responses are hard-capped at 5 MB and LLM responses at 1 MB using `readBodyWithCap()` to abort oversized streams in real-time.
 
-### LLM Prompt Injection
+### LLM Prompt Injection & Custom Analyzers
 
-`src/adapters/provider.js` sanitises all feed content before interpolating it into LLM prompts:
+`src/adapters/provider.js` sanitises feed content before interpolating it into LLM prompts:
 
 - ASCII control characters (`\x00`–`\x1F` excluding space) are stripped.
-- Newlines are collapsed to spaces, preventing role-boundary injection sequences such as `\nAssistant: ignore all previous instructions`.
 - Titles are capped at 500 characters; snippets at 2,000 characters; expanded context at 3,000 characters.
+- Custom prompts and prompt templates can be supplied via `systemPrompt` and `promptTemplate`.
 
-### XSS Mitigation
+### MCP Server Security
 
-`src/core/parser.js` strips the following tags from `contentSnippet` during HTML-to-text extraction:
-`<script>`, `<style>`, `<iframe>`, `<object>`, `<embed>`, `<form>`, `<input>`, `<button>`.
-
-This mitigates XSS if `contentSnippet` is rendered as HTML by a downstream consumer.
-
-### LLM Provider Security
-
-- **API key validation** — explicit check before any network call. An empty or missing key throws a clear error rather than sending a blank `Bearer ` token.
-- **Provider allowlist** — `SUPPORTED_PROVIDERS` in `provider.js` and `ALLOWED_PROVIDERS` in `mcp/server.js` reject unknown provider strings before they reach env-var access or network dispatch.
-- **Response size cap** — LLM API responses are capped at 1 MB before parsing.
-- **API keys never logged** — keys are read from env or config and forwarded only to the official provider endpoint. They are never written to disk, logs, or any secondary destination.
-
-### MCP Server
-
-- **Input validation** — all `tools/call` arguments are validated before use. A non-string or empty `url` returns JSON-RPC `-32602 Invalid params`.
-- **Provider allowlist enforced per call** — an untrusted MCP caller cannot supply an arbitrary `provider` string to reach internal dispatch.
+- **Credential Isolation for Custom Endpoints** — environment API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) are only used for official standard endpoints. If a custom or untrusted `baseURL` is specified, `args.apiKey` must be explicitly provided by the caller to prevent credential exfiltration.
+- **Provider allowlist enforced per call** — untrusted MCP callers cannot supply arbitrary provider strings.
 - **No persistent state across calls** — each tool call is stateless; no session data is retained between requests.
 
 ### Supply-Chain

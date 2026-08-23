@@ -70,7 +70,9 @@ export async function createAnalyzer(config = {}) {
   }
 
   return async ({ item, context }) => {
-    const systemPrompt = `You are a technical analyst feed parser. Analyze the feed item and return JSON matching the schema below:
+    const systemPrompt =
+      config.systemPrompt ||
+      `You are a technical analyst feed parser. Analyze the feed item and return JSON matching the schema below:
 {
   "decision": "relevant" | "ignore",
   "confidence": number (0-100),
@@ -84,14 +86,23 @@ Only output valid JSON.`;
     // SECURITY — prompt injection mitigation:
     // Sanitize untrusted feed content before interpolating into the prompt.
     // Titles are capped at 500 chars; snippets at 2 000 chars.
-    // Control characters and newlines are normalised to spaces so a crafted
-    // feed cannot inject role-boundary sequences (e.g. "\nAssistant:").
     const safeTitle = sanitizeForPrompt(item.title, 500);
     const safeSnippet = sanitizeForPrompt(item.contentSnippet ?? '', 2000);
     const safeContext = sanitizeForPrompt(context ?? '', 3000);
     const safeLink = sanitizeForPrompt(item.link ?? '', 500);
 
-    const userPrompt = `Title: ${safeTitle}\nURL: ${safeLink}\nFeed snippet: ${safeSnippet}\nExpanded context: ${safeContext}`;
+    let userPrompt;
+    if (typeof config.promptTemplate === 'function') {
+      userPrompt = config.promptTemplate({ title: safeTitle, link: safeLink, snippet: safeSnippet, context: safeContext });
+    } else if (typeof config.promptTemplate === 'string') {
+      userPrompt = config.promptTemplate
+        .replace(/{{title}}/g, safeTitle)
+        .replace(/{{link}}/g, safeLink)
+        .replace(/{{snippet}}/g, safeSnippet)
+        .replace(/{{context}}/g, safeContext);
+    } else {
+      userPrompt = `Title: ${safeTitle}\nURL: ${safeLink}\nFeed snippet: ${safeSnippet}\nExpanded context: ${safeContext}`;
+    }
 
     /**
      * Fetch helper with:

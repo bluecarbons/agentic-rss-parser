@@ -25,6 +25,25 @@ export interface ParserOptions {
   normalize?: boolean;
 }
 
+export interface Enclosure {
+  url: string;
+  type?: string;
+  length?: string;
+}
+
+export interface MediaThumbnail {
+  thumbnail: string;
+  medium?: string;
+}
+
+export interface ItunesPodcastData {
+  duration?: string;
+  episode?: string;
+  author?: string;
+  image?: string;
+  summary?: string;
+}
+
 export interface ParserFeedItem {
   title?: string;
   link?: string;
@@ -35,6 +54,9 @@ export interface ParserFeedItem {
   guid?: string;
   categories?: string[];
   creator?: string;
+  enclosure?: Enclosure;
+  media?: MediaThumbnail;
+  itunes?: ItunesPodcastData;
   [key: string]: unknown;
 }
 
@@ -96,6 +118,19 @@ export interface GetAnalysesOptions {
   offset?: number;
 }
 
+export interface FeedCacheData {
+  etag?: string | null;
+  lastModified?: string | null;
+}
+
+export interface StorageStatistics {
+  totalProcessed: number;
+  totalAnalyses: number;
+  relevantCount: number;
+  ignoreCount: number;
+  feedsCount: number;
+}
+
 export interface StorageAdapter {
   hasProcessed(id: string): boolean;
   markProcessed(item: {
@@ -118,7 +153,11 @@ export interface StorageAdapter {
       tags: string[];
     }
   ): void;
+  getFeedCache?(feedUrl: string): FeedCacheData | null;
+  setFeedCache?(feedUrl: string, cacheData: FeedCacheData): void;
   getAnalyses(opts?: GetAnalysesOptions): StorageAnalysisRow[];
+  searchAnalyses?(query: string, opts?: { limit?: number }): StorageAnalysisRow[];
+  getStatistics?(): StorageStatistics;
   pruneOlderThan(ttlDays: number): { deletedItems: number; deletedAnalyses: number };
   exportForEmbedding(opts?: { feedUrl?: string; decision?: 'relevant' | 'ignore'; limit?: number }): Array<{
     id: string;
@@ -163,6 +202,8 @@ export interface AnalyzerConfig {
   model?: string;
   apiKey?: string;
   baseURL?: string;
+  systemPrompt?: string;
+  promptTemplate?: string | ((data: { title: string; link: string; snippet: string; context: string }) => string);
   signals?: string[];
   extraSignals?: string[];
   threshold?: number;
@@ -239,6 +280,19 @@ export function resolveSignals(
 ): string[];
 export function fetchFullArticle(url: string): Promise<string>;
 export function parseOpml(xml: string): OpmlResult;
+export function isJsonFeed(content: string | object): boolean;
+export function parseJsonFeed<Feed = unknown, Item = ParserFeedItem>(
+  input: string | object,
+  options?: ParserOptions
+): ParserFeed<Feed, Item>;
+export function parseFeedXml<Feed = unknown, Item = ParserFeedItem>(
+  xml: string,
+  options?: ParserOptions
+): ParserFeed<Feed, Item>;
+export function parseFeedString<Feed = unknown, Item = ParserFeedItem>(
+  xml: string,
+  options?: ParserOptions
+): ParserFeed<Feed, Item>;
 export function createFeedWatcher(config: WatcherConfig): FeedWatcher;
 export function createStorage(dbPath: string): StorageAdapter;
 export function createMemoryStorage(): StorageAdapter;
@@ -250,4 +304,5 @@ export * as McpServer from './mcp/server.js';
 
 declare const ParserDefault: typeof Parser;
 export default ParserDefault;
+
 

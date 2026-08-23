@@ -69,6 +69,13 @@ export function createStorage(dbPath) {
       created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS feed_cache (
+      feed_url      TEXT PRIMARY KEY,
+      etag          TEXT,
+      last_modified TEXT,
+      checked_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) STRICT;
+
     -- Indexes for O(log n) lookups on common query paths.
     -- CREATE INDEX IF NOT EXISTS is idempotent on repeated cold starts.
     CREATE INDEX IF NOT EXISTS idx_processed_items_feed_url
@@ -85,9 +92,6 @@ export function createStorage(dbPath) {
     },
 
     markProcessed(item) {
-      // processedAt is optional — when supplied (e.g. backfill / migration)
-      // it is used instead of CURRENT_TIMESTAMP so the SQLite row reflects
-      // the original ingest time rather than the current wall-clock time.
       if (item.processedAt) {
         db
           .prepare(
@@ -120,6 +124,26 @@ export function createStorage(dbPath) {
           JSON.stringify(analysis.actionItems),
           JSON.stringify(analysis.tags)
         );
+    },
+
+    getFeedCache(feedUrl) {
+      const row = db.prepare('SELECT etag, last_modified FROM feed_cache WHERE feed_url = ?').get(feedUrl);
+      if (!row) return null;
+      return {
+        etag: row.etag ?? null,
+        lastModified: row.last_modified ?? null
+      };
+    },
+
+    setFeedCache(feedUrl, cacheData = {}) {
+      db.prepare(`
+        INSERT INTO feed_cache (feed_url, etag, last_modified, checked_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(feed_url) DO UPDATE SET
+          etag = excluded.etag,
+          last_modified = excluded.last_modified,
+          checked_at = CURRENT_TIMESTAMP
+      `).run(feedUrl, cacheData.etag || null, cacheData.lastModified || null);
     },
 
     getAnalyses(opts = {}) {
@@ -159,11 +183,45 @@ export function createStorage(dbPath) {
       }));
     },
 
+    searchAnalyses(query, opts = {}) {
+      if (typeof query !== 'string' || !query.trim()) return [];
+      const term = `%${query.trim()}%`;
+      const limit = Math.min(
+        Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : 50,
+        1000
+      );
+
+      const sql = `
+        SELECT
+          a.id, a.item_id, a.decision, a.confidence,
+          a.summary, a.impact, a.action_items, a.tags, a.created_at,
+          p.feed_url, p.title, p.link, p.published_at, p.processed_at
+        FROM analyses a
+        JOIN processed_items p ON p.id = a.item_id
+        WHERE (p.title LIKE ? OR a.summary LIKE ? OR a.impact LIKE ? OR a.tags LIKE ?)
+        ORDER BY a.created_at DESC LIMIT ?
+      `;
+
+      return db.prepare(sql).all(term, term, term, term, limit).map((row) => ({
+        ...row,
+        actionItems: JSON.parse(row.action_items),
+        tags: JSON.parse(row.tags)
+      }));
+    },
+
+    getStatistics() {
+      const totalProcessed = db.prepare('SELECT count(*) as count FROM processed_items').get().count;
+      const totalAnalyses = db.prepare('SELECT count(*) as count FROM analyses').get().count;
+      const relevantCount = db.prepare("SELECT count(*) as count FROM analyses WHERE decision = 'relevant'").get().count;
+      const ignoreCount = db.prepare("SELECT count(*) as count FROM analyses WHERE decision = 'ignore'").get().count;
+      const feedsCount = db.prepare('SELECT count(DISTINCT feed_url) as count FROM processed_items').get().count;
+      return { totalProcessed, totalAnalyses, relevantCount, ignoreCount, feedsCount };
+    },
+
     pruneOlderThan(ttlDays) {
       if (typeof ttlDays !== 'number' || ttlDays <= 0) {
         throw new TypeError('pruneOlderThan: ttlDays must be a positive number');
       }
-      // Delete analyses whose parent processed_item is older than the TTL.
       const deletedAnalyses = db
         .prepare(
           `DELETE FROM analyses WHERE item_id IN (
@@ -183,15 +241,6 @@ export function createStorage(dbPath) {
       return { deletedItems, deletedAnalyses };
     },
 
-    /**
-     * Export stored analyses formatted for vector database embedding.
-     *
-     * @param {object} [opts]
-     * @param {string} [opts.feedUrl] - Filter by feed URL.
-     * @param {string} [opts.decision='relevant'] - Filter decision.
-     * @param {number} [opts.limit=100] - Limit rows.
-     * @returns {Array<{ id: string, text: string, metadata: object }>}
-     */
     exportForEmbedding(opts = {}) {
       const rows = this.getAnalyses({
         feedUrl: opts.feedUrl,
@@ -222,20 +271,12 @@ export function createStorage(dbPath) {
 
 /**
  * Create a lightweight in-memory StorageAdapter.
- *
- * Suitable for:
- *   - Unit / integration tests (no filesystem, no Node version constraint)
- *   - Node 18/20 environments (no node:sqlite built-in)
- *   - Stateless/ephemeral deployments that don't need persistence
- *
- * Data is lost when the process exits. Use createStorage() for persistence.
- *
- * @returns {StorageAdapter}
  */
 export function createMemoryStorage() {
   const processed = new Map();  // id → item
   const analyses = new Map();   // id → analysis row
   const analysesByItemId = new Map(); // itemId → analysis id
+  const feedCache = new Map();  // feedUrl → { etag, lastModified }
 
   return {
     hasProcessed(id) {
@@ -246,9 +287,6 @@ export function createMemoryStorage() {
       if (!processed.has(item.id)) {
         processed.set(item.id, {
           ...item,
-          // Honour item.processedAt when provided (backfill / migration / tests).
-          // Falls back to the current wall-clock time, matching the SQLite
-          // DEFAULT CURRENT_TIMESTAMP behaviour of createStorage().
           processed_at: item.processedAt ?? new Date().toISOString()
         });
       }
@@ -270,6 +308,17 @@ export function createMemoryStorage() {
         analyses.set(analysis.id, row);
         analysesByItemId.set(itemId, analysis.id);
       }
+    },
+
+    getFeedCache(feedUrl) {
+      return feedCache.get(feedUrl) || null;
+    },
+
+    setFeedCache(feedUrl, cacheData = {}) {
+      feedCache.set(feedUrl, {
+        etag: cacheData.etag || null,
+        lastModified: cacheData.lastModified || null
+      });
     },
 
     getAnalyses(opts = {}) {
@@ -302,6 +351,64 @@ export function createMemoryStorage() {
       return rows.slice(offset, offset + limit);
     },
 
+    searchAnalyses(query, opts = {}) {
+      if (typeof query !== 'string' || !query.trim()) return [];
+      const q = query.toLowerCase().trim();
+      const limit = Math.min(
+        Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : 50,
+        1000
+      );
+
+      const rows = [...analyses.values()]
+        .map((a) => {
+          const item = processed.get(a.item_id) || {};
+          return {
+            ...a,
+            feed_url: item.feedUrl || '',
+            title: item.title || '',
+            link: item.link || null,
+            published_at: item.publishedAt || null,
+            processed_at: item.processed_at || null
+          };
+        })
+        .filter((row) => {
+          return (
+            (row.title && row.title.toLowerCase().includes(q)) ||
+            (row.summary && row.summary.toLowerCase().includes(q)) ||
+            (row.impact && row.impact.toLowerCase().includes(q)) ||
+            (Array.isArray(row.tags) && row.tags.some((t) => t.toLowerCase().includes(q)))
+          );
+        });
+
+      rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      return rows.slice(0, limit);
+    },
+
+    getStatistics() {
+      const totalProcessed = processed.size;
+      const totalAnalyses = analyses.size;
+      let relevantCount = 0;
+      let ignoreCount = 0;
+      const feeds = new Set();
+
+      for (const item of processed.values()) {
+        if (item.feedUrl) feeds.add(item.feedUrl);
+      }
+
+      for (const a of analyses.values()) {
+        if (a.decision === 'relevant') relevantCount++;
+        else if (a.decision === 'ignore') ignoreCount++;
+      }
+
+      return {
+        totalProcessed,
+        totalAnalyses,
+        relevantCount,
+        ignoreCount,
+        feedsCount: feeds.size
+      };
+    },
+
     pruneOlderThan(ttlDays) {
       if (typeof ttlDays !== 'number' || ttlDays <= 0) {
         throw new TypeError('pruneOlderThan: ttlDays must be a positive number');
@@ -325,15 +432,6 @@ export function createMemoryStorage() {
       return { deletedItems, deletedAnalyses };
     },
 
-    /**
-     * Export stored analyses formatted for vector database embedding.
-     *
-     * @param {object} [opts]
-     * @param {string} [opts.feedUrl] - Filter by feed URL.
-     * @param {string} [opts.decision='relevant'] - Filter decision.
-     * @param {number} [opts.limit=100] - Limit rows.
-     * @returns {Array<{ id: string, text: string, metadata: object }>}
-     */
     exportForEmbedding(opts = {}) {
       const rows = this.getAnalyses({
         feedUrl: opts.feedUrl,

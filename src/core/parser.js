@@ -29,6 +29,20 @@ function findTagClose(xml, from) {
   return -1;
 }
 
+const MAX_XML_DEPTH = 128;
+const FORBIDDEN_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function sanitizeNodeKey(key) {
+  if (FORBIDDEN_OBJECT_KEYS.has(key)) return `_${key}`;
+  return key;
+}
+
+function safeCodePoint(num) {
+  return Number.isInteger(num) && num >= 0 && num <= 0x10ffff
+    ? String.fromCodePoint(num)
+    : '';
+}
+
 export function parseXml(xml) {
   let index = 0;
 
@@ -38,8 +52,8 @@ export function parseXml(xml) {
       .replace(/&apos;/g, "'")
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
-      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-      .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => safeCodePoint(parseInt(hex, 16)))
+      .replace(/&#([0-9]+);/g, (_, dec) => safeCodePoint(parseInt(dec, 10)))
       .replace(/&amp;/g, '&');
   }
 
@@ -129,26 +143,6 @@ export function parseXml(xml) {
       const node = { '#name': name, '#children': [] };
 
       // CORRECTNESS: match both quoted and unquoted attribute values.
-      // RFC-compliant XML requires quotes, but real-world feeds from legacy
-      // CMS platforms regularly emit bare unquoted values (e.g. <item count=5
-      // selected>). The previous regex only covered single- and double-quoted
-      // forms, silently dropping any unquoted attribute entirely.
-      //
-      // Pattern breakdown:
-      //   Quoted (double): ([a-zA-Z0-9_:-]+)="([^"]*)"   -- key="val"
-      //   Quoted (single): ([a-zA-Z0-9_:-]+)='([^']*)'   -- key='val'
-      //   Unquoted:        ([a-zA-Z0-9_:-]+)=([^\s>"']+)  -- key=val
-      //   Boolean flag:    ([a-zA-Z0-9_:-]+)(?=[\s>])     -- selected, async
-      //
-      // BUGFIX: the unquoted-value branch previously excluded '/' from the
-      // value charclass (to avoid swallowing a self-closing "/>"). But the
-      // trailing self-close slash is already stripped from `content` above
-      // (see `isSelfClose` / `content = tagStr.slice(0, -1)`), so `attrStr`
-      // never contains a bare self-close slash — excluding '/' here only
-      // served to truncate any unquoted URL value at its first slash, e.g.
-      // `<link href=http://example.com/feed>` parsed as `href="http:"` plus
-      // two bogus boolean attributes ("com", "feed"). Unquoted values now
-      // stop only at whitespace, '>', '"', or "'".
       const attrRegex =
         /([a-zA-Z0-9_:-]+)="([^"]*)"|([a-zA-Z0-9_:-]+)='([^']*)'|([a-zA-Z0-9_:-]+)=([^\s>"']+)|([a-zA-Z0-9_:-]+)(?=[\s>/]|$)/g;
       let attrMatch;
@@ -171,6 +165,9 @@ export function parseXml(xml) {
       if (isSelfClose) {
         stack[stack.length - 1]['#children'].push(node);
       } else {
+        if (stack.length >= MAX_XML_DEPTH) {
+          throw new Error(`XML exceeded maximum nesting depth of ${MAX_XML_DEPTH}`);
+        }
         stack.push(node);
       }
     }
@@ -187,20 +184,27 @@ export function parseXml(xml) {
       }
       const res = {};
       if ('#text' in node) res['#text'] = node['#text'];
-      for (const k of attrKeys) res[k] = node[k];
+      for (const k of attrKeys) {
+        const safeAttrKey = `@_${sanitizeNodeKey(k.slice(2))}`;
+        res[safeAttrKey] = node[k];
+      }
       return res;
     }
 
     const res = {};
     if ('#text' in node) res['#text'] = node['#text'];
     for (const k of Object.keys(node)) {
-      if (k.startsWith('@_')) res[k] = node[k];
+      if (k.startsWith('@_')) {
+        const safeAttrKey = `@_${sanitizeNodeKey(k.slice(2))}`;
+        res[safeAttrKey] = node[k];
+      }
     }
 
     for (const child of node['#children']) {
-      const name = child['#name'];
+      const rawName = child['#name'];
+      const name = sanitizeNodeKey(rawName);
       const val = toJsObject(child);
-      if (name in res) {
+      if (Object.hasOwn(res, name)) {
         if (Array.isArray(res[name])) {
           res[name].push(val);
         } else {
@@ -319,6 +323,61 @@ function getLinkValue(node) {
   return textValue(node);
 }
 
+import { isJsonFeed, parseJsonFeed } from './json-feed.js';
+
+function extractEnclosure(itemNode) {
+  if (itemNode.enclosure) {
+    const enc = Array.isArray(itemNode.enclosure) ? itemNode.enclosure[0] : itemNode.enclosure;
+    if (typeof enc === 'object' && enc !== null) {
+      return {
+        url: enc['@_url'] || enc.url || '',
+        length: enc['@_length'] || enc.length,
+        type: enc['@_type'] || enc.type
+      };
+    }
+  }
+  if (itemNode.link && typeof itemNode.link === 'object') {
+    const links = Array.isArray(itemNode.link) ? itemNode.link : [itemNode.link];
+    const encLink = links.find((l) => l['@_rel'] === 'enclosure');
+    if (encLink) {
+      return {
+        url: encLink['@_href'] || encLink.href || '',
+        length: encLink['@_length'] || encLink.length,
+        type: encLink['@_type'] || encLink.type
+      };
+    }
+  }
+  return undefined;
+}
+
+function extractMedia(itemNode) {
+  const thumbNode = itemNode['media:thumbnail'] || itemNode['media:content'] || itemNode['media:group']?.['media:thumbnail'];
+  if (thumbNode) {
+    const thumb = Array.isArray(thumbNode) ? thumbNode[0] : thumbNode;
+    const url = typeof thumb === 'object' ? (thumb['@_url'] || thumb.url || '') : textValue(thumb);
+    if (url) {
+      return {
+        thumbnail: url,
+        ...(typeof thumb === 'object' && thumb['@_medium'] ? { medium: thumb['@_medium'] } : {})
+      };
+    }
+  }
+  return undefined;
+}
+
+function extractItunes(itemNode) {
+  const itunes = {};
+  if (itemNode['itunes:duration']) itunes.duration = textValue(itemNode['itunes:duration']);
+  if (itemNode['itunes:episode']) itunes.episode = textValue(itemNode['itunes:episode']);
+  if (itemNode['itunes:author']) itunes.author = textValue(itemNode['itunes:author']);
+  if (itemNode['itunes:image']) {
+    const img = itemNode['itunes:image'];
+    itunes.image = typeof img === 'object' ? (img['@_href'] || img.href || '') : textValue(img);
+  }
+  if (itemNode['itunes:summary']) itunes.summary = textValue(itemNode['itunes:summary']);
+  return Object.keys(itunes).length > 0 ? itunes : undefined;
+}
+
 function normalizeItem(itemNode, options) {
   const rawDate = textValue(itemNode.pubDate || itemNode.updated || itemNode.published);
 
@@ -333,6 +392,15 @@ function normalizeItem(itemNode, options) {
     categories: asArray(itemNode.category ?? itemNode.categories).map(textValue).filter(Boolean)
   };
 
+  const enclosure = extractEnclosure(itemNode);
+  if (enclosure) normalized.enclosure = enclosure;
+
+  const media = extractMedia(itemNode);
+  if (media) normalized.media = media;
+
+  const itunes = extractItunes(itemNode);
+  if (itunes) normalized.itunes = itunes;
+
   if (options.normalize === false) {
     Object.assign(normalized, itemNode);
   }
@@ -340,7 +408,7 @@ function normalizeItem(itemNode, options) {
   applyCustomFields(normalized, itemNode, options.customFields?.item || []);
 
   if (!normalized.creator) {
-    const creator = itemNode.creator || itemNode.author || itemNode['dc:creator'];
+    const creator = itemNode.creator || itemNode.author || itemNode['dc:creator'] || itunes?.author;
     if (creator) normalized.creator = textValue(creator);
   }
 
@@ -375,12 +443,17 @@ function getFeedAndItems(parsed) {
 }
 
 /**
- * Parse a raw RSS/Atom XML string into a normalised feed object.
+ * Parse a raw RSS/Atom XML or JSON Feed string into a normalised feed object.
  * Synchronous — XML parsing is CPU-bound; async wrapper was unnecessary overhead.
  */
 export function parseFeedXml(xml, options = {}) {
+  if (isJsonFeed(xml)) {
+    return parseJsonFeed(xml, options);
+  }
   const parsed = parseXml(xml);
   const { feedNode, rawItems } = getFeedAndItems(parsed);
   const items = rawItems.map((itemNode) => normalizeItem(itemNode, options));
   return normalizeFeed(feedNode, items, options);
 }
+
+export { parseFeedXml as parseFeedString };

@@ -68,8 +68,25 @@ export async function runAgenticParser(config) {
             typeof config.parserOptions === 'function'
               ? config.parserOptions(feedUrl)
               : config.parserOptions;
-          const result = await fetchTextWithRedirects(feedUrl, effectiveOptions);
-          if (result === null) return;
+
+          // Retrieve cached ETag and Last-Modified headers for conditional GET (304 Not Modified)
+          const cache = storage.getFeedCache ? storage.getFeedCache(feedUrl) : null;
+          const fetchOpts = {
+            ...effectiveOptions,
+            ...(cache?.etag && !effectiveOptions?.etag ? { etag: cache.etag } : {}),
+            ...(cache?.lastModified && !effectiveOptions?.lastModified ? { lastModified: cache.lastModified } : {})
+          };
+
+          const result = await fetchTextWithRedirects(feedUrl, fetchOpts);
+          if (result === null) return; // 304 Not Modified — feed unchanged
+
+          if (storage.setFeedCache && (result.etag || result.lastModified)) {
+            storage.setFeedCache(feedUrl, {
+              etag: result.etag,
+              lastModified: result.lastModified
+            });
+          }
+
           const xml = result.text;
           const feed = parseFeedXml(xml, effectiveOptions);
 

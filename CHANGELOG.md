@@ -5,6 +5,25 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.0] — 2026-08-23
+
+### Security
+
+- **MCP BaseURL Credential Exfiltration Guard** (`src/mcp/server.js`) — Environment API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) are no longer automatically forwarded if a custom or untrusted `baseURL` is specified in MCP tool arguments. Custom proxy endpoints now require explicitly passing `apiKey` to prevent unauthorized credential capture.
+- **Prototype Pollution & Method Shadowing Fix** (`src/core/parser.js`) — `toJsObject()` now checks object keys with `Object.hasOwn(res, name)` rather than `name in res`, preventing accidental property collisions with `Object.prototype` methods (such as `toString` or `valueOf`). Sensitive keys (`__proto__`, `constructor`, `prototype`) are sanitized.
+- **XML Entity Decoding DoS Prevention** (`src/core/parser.js`) — Added bounds checking (`0 <= codePoint <= 0x10FFFF`) before invoking `String.fromCodePoint()` in `unescapeEntities()` to prevent unhandled `RangeError` crashes when parsing invalid numeric entities.
+- **XML Nesting Stack Overflow Guard** (`src/core/parser.js`) — Added a maximum nesting depth cap (`MAX_XML_DEPTH = 128`) in `parseXml()` to reject deeply nested XML bombs.
+- **SSRF CIDR Blocklist Hardening** (`src/core/http.js`) — Added coverage for all remaining IANA special/reserved ranges, including multicast (`224.0.0.0/4`), reserved Class E (`240.0.0.0/4`), documentation (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`), benchmarking (`198.18.0.0/15`), 6to4 (`2002::/16`), and discard (`100::/64`) prefixes.
+
+### Added
+
+- **JSON Feed (v1 & v1.1) Support** (`src/core/json-feed.js`, `src/core/parser.js`) — Native detection and parsing for JSON Feed specification alongside RSS and Atom. Exported `isJsonFeed` and `parseJsonFeed`.
+- **Podcast & Media RSS Enclosure Normalization** (`src/core/parser.js`) — Extracted `<enclosure>` audio/video metadata, `<media:thumbnail>`/`<media:content>` URLs, and iTunes podcast tags (`itunes:duration`, `itunes:episode`, `itunes:author`, `itunes:image`).
+- **Persistent HTTP Caching (ETag / Last-Modified)** (`src/storage.js`, `src/parser.js`) — Added `feed_cache` table to SQLite and memory storage. `runAgenticParser` now automatically sends conditional GET headers and handles HTTP 304 Not Modified, eliminating unnecessary network bandwidth and redundant LLM analysis.
+- **Database Search & Analytics APIs** (`src/storage.js`) — Added `storage.searchAnalyses(query, opts)` for keyword searching across stored articles and intelligence, and `storage.getStatistics()` for database metrics.
+- **Custom Prompts and Schemas** (`src/adapters/provider.js`) — `createAnalyzer()` now accepts `systemPrompt` and `promptTemplate` (string with placeholder interpolation or custom function) for domain-specific evaluation workflows.
+- **Expanded MCP Server Tools & Resources** (`src/mcp/server.js`) — Added `search_feed_history`, `get_feed_statistics`, and `prune_database` tools, plus the `rss://analyses/latest` MCP resource endpoint.
+
 ## [1.6.1] — 2026-07-30
 
 ### Fixed
