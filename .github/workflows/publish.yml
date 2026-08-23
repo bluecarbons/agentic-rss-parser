@@ -1,12 +1,26 @@
 name: Publish Package
 
-# Triggered when a GitHub Release is published, or manually via workflow_dispatch.
-# Create the release via: gh release create vX.Y.Z --target main
-# The tag MUST match the version in package.json.
+# Triggers:
+# 1. On pushing a version tag (e.g. git push origin v1.7.0)
+# 2. On publishing a GitHub Release
+# 3. Manually via GitHub Actions UI (workflow_dispatch)
 on:
+  push:
+    tags:
+      - 'v*'
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Publish target'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - npm
+          - github-packages
 
 # Permissions needed for npm OIDC provenance and GitHub Packages publishing.
 permissions:
@@ -56,13 +70,16 @@ jobs:
         run: npm pack --dry-run
 
   # ──────────────────────────────────────────────────────────────────
-  # Publish to npm Registry (npmjs.com) with provenance attestation.
+  # Publish to npm Registry (npmjs.com)
   # ──────────────────────────────────────────────────────────────────
   publish-npm:
     name: Publish to npmjs.com
     needs: test
+    if: |
+      always() &&
+      needs.test.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.target == 'all' || github.event.inputs.target == 'npm')
     runs-on: ubuntu-latest
-    environment: npm-publish
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,20 +99,27 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Verify version matches release tag (if release trigger)
-        if: github.event_name == 'release'
+      # Verify tag matches version if triggered by tag or release
+      - name: Verify version matches tag
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
         run: |
           PKG_VERSION="v$(node -p "require('./package.json').version")"
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
+          REF_TAG="${{ github.ref_name || github.event.release.tag_name }}"
           echo "package.json version : $PKG_VERSION"
-          echo "Release tag          : $RELEASE_TAG"
-          if [ "$PKG_VERSION" != "$RELEASE_TAG" ]; then
-            echo "::error::Version mismatch — package.json ($PKG_VERSION) != release tag ($RELEASE_TAG)"
+          echo "Release/Git tag      : $REF_TAG"
+          if [ "$PKG_VERSION" != "$REF_TAG" ]; then
+            echo "::error::Version mismatch — package.json ($PKG_VERSION) != tag ($REF_TAG)"
             exit 1
           fi
 
       - name: Publish to npm
-        run: pnpm publish --access public --provenance --no-git-checks
+        run: |
+          if [ -n "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+            pnpm publish --access public --no-git-checks
+          else
+            pnpm publish --access public --provenance --no-git-checks
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -105,6 +129,10 @@ jobs:
   publish-gpr:
     name: Publish to GitHub Packages
     needs: test
+    if: |
+      always() &&
+      needs.test.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.target == 'all' || github.event.inputs.target == 'github-packages')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
