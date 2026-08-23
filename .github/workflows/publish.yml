@@ -1,17 +1,18 @@
-name: Publish to npm
+name: Publish Package
 
-# Triggered when a GitHub Release is published.
+# Triggered when a GitHub Release is published, or manually via workflow_dispatch.
 # Create the release via: gh release create vX.Y.Z --target main
-# The tag MUST match the version in package.json (enforced in the publish job).
+# The tag MUST match the version in package.json.
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
-# Minimal permissions — id-token is required for npm provenance via OIDC.
-# See: https://docs.npmjs.com/generating-provenance-statements
+# Permissions needed for npm OIDC provenance and GitHub Packages publishing.
 permissions:
   contents: read
   id-token: write
+  packages: write
 
 jobs:
   # ──────────────────────────────────────────────────────────────────
@@ -55,12 +56,10 @@ jobs:
         run: npm pack --dry-run
 
   # ──────────────────────────────────────────────────────────────────
-  # Publish: only runs if every test matrix cell passes.
-  # Uses npm provenance (OIDC) so we do not need to store a long-lived token
-  # in repository secrets.
+  # Publish to npm Registry (npmjs.com) with provenance attestation.
   # ──────────────────────────────────────────────────────────────────
-  publish:
-    name: Publish to npm
+  publish-npm:
+    name: Publish to npmjs.com
     needs: test
     runs-on: ubuntu-latest
     environment: npm-publish
@@ -83,10 +82,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # Verify the package.json version matches the release tag.
-      # Prevents publishing stale version numbers if the tag and package.json
-      # are ever accidentally out of sync.
-      - name: Verify version matches release tag
+      - name: Verify version matches release tag (if release trigger)
+        if: github.event_name == 'release'
         run: |
           PKG_VERSION="v$(node -p "require('./package.json').version")"
           RELEASE_TAG="${{ github.event.release.tag_name }}"
@@ -97,8 +94,52 @@ jobs:
             exit 1
           fi
 
-      # Publish with provenance attestation.
-      # --provenance attaches a signed SLSA build provenance statement to the
-      # package on npmjs.com, visible under the 'Provenance' tab.
       - name: Publish to npm
         run: pnpm publish --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ──────────────────────────────────────────────────────────────────
+  # Publish to GitHub Packages (npm.pkg.github.com)
+  # ──────────────────────────────────────────────────────────────────
+  publish-gpr:
+    name: Publish to GitHub Packages
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node 22 with GitHub Packages registry auth
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          registry-url: https://npm.pkg.github.com
+          scope: '@bluecarbons'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # GitHub Packages strictly requires the package name in package.json to
+      # be prefixed with @<owner>/ (e.g. @bluecarbons/agentic-rss-parser).
+      - name: Set scoped package name for GitHub Packages
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            if (!pkg.name.startsWith('@')) {
+              pkg.name = '@bluecarbons/' + pkg.name;
+              fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            }
+          "
+
+      - name: Publish to GitHub Packages
+        run: npm publish --registry=https://npm.pkg.github.com
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
