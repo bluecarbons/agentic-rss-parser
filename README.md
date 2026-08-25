@@ -10,7 +10,7 @@ An open-source Node.js library for parsing RSS, Atom, and JSON feeds with built-
 
 Part of the [BLUECARBONS Open Source](https://opensource.bluecarbons.com) initiative — software components powering agentic and agent-dependent products.
 
-> **v1.7.0** — Security Hardening & Feature Expansion: Credential isolation for MCP custom base URLs, prototype pollution and DoS hardening in XML parsing, complete SSRF IANA CIDR range blocking, native JSON Feed v1/v1.1 support, Podcast & Media enclosures, persistent ETag HTTP caching, and expanded MCP tools/resources. See [CHANGELOG.md](./CHANGELOG.md) for details.
+> **v1.7.1** — Supply Chain Hardening & Socket.dev Compliance: eliminated dynamic `createRequire`, added community compliance manifests (`CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`), declared `sideEffects: false`, and configured Socket.dev exemption manifests. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ---
 

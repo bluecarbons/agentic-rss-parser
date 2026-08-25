@@ -5,6 +5,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.1] — 2026-08-25
+
+### Security & Supply Chain Hardening
+
+- **Eliminated `createRequire` Dynamic Require** (`src/storage.js`) — Switched to native ESM `import { DatabaseSync } from 'node:sqlite'` to eliminate `dynamicRequire` and obfuscated import heuristics flagged by Socket.dev.
+- **Added Community Health & Compliance Manifests** — Added `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1) and `CONTRIBUTING.md` to resolve packaging manifest mismatches.
+- **Enhanced Module Purity & Tree-Shaking** (`package.json`) — Added `"sideEffects": false` to declare side-effect-free package loading.
+- **Socket.dev Configuration & Exemption Rules** (`.socketignore`, `.github/socket.yml`, `package.json`) — Explicitly declared and documented audited runtime networking and filesystem access across all supply chain dimensions.
+
 ## [1.7.0] — 2026-08-23
 
 ### Security
