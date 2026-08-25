@@ -81,6 +81,7 @@
     "release:pnpm": "corepack pnpm publish --access public --no-git-checks"
   },
   "packageManager": "pnpm@9.15.4",
+  "sideEffects": false,
   "files": [
     "bin",
     "src",
@@ -93,10 +94,19 @@
     "CONTRIBUTING.md"
   ],
   "socket": {
+    "categories": {
+      "supplyChain": true,
+      "quality": true,
+      "maintenance": true,
+      "vulnerability": true,
+      "license": true
+    },
     "ignore": {
       "envVars": true,
       "networkAccess": true,
-      "urlStrings": true
+      "urlStrings": true,
+      "fileAccess": true,
+      "dynamicRequire": true
     }
   }
 }

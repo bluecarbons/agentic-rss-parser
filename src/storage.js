@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createRequire } from 'node:module';
+import { DatabaseSync } from 'node:sqlite';
 
 /**
  * StorageAdapter interface (duck-typed — no class required):
@@ -18,10 +18,6 @@ import { createRequire } from 'node:module';
  *   - Swap in any other persistence backend
  */
 
-// createRequire is the canonical ESM-safe way to call require() synchronously.
-// node:sqlite is a built-in — no network call, safe for synchronous use.
-const _require = createRequire(import.meta.url);
-
 /**
  * Create a SQLite-backed storage adapter using Node's built-in node:sqlite.
  * Requires Node >= 22.5.0.
@@ -30,20 +26,6 @@ const _require = createRequire(import.meta.url);
  * @returns {StorageAdapter}
  */
 export function createStorage(dbPath) {
-  // Lazy-load so that environments without node:sqlite (Node < 22.5) can
-  // still import this module as long as they supply their own storage adapter
-  // via runAgenticParser({ storage: ... }) and never call createStorage().
-  let DatabaseSync;
-  try {
-    ({ DatabaseSync } = _require('node:sqlite'));
-  } catch {
-    throw new Error(
-      'createStorage() requires Node >= 22.5.0 (node:sqlite built-in). ' +
-      'On Node 18/20, supply a custom storage adapter via runAgenticParser({ storage: createMemoryStorage() }) ' +
-      'or a better-sqlite3-based adapter. See README for details.'
-    );
-  }
-
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
 

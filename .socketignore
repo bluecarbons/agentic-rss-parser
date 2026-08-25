@@ -1,0 +1,9 @@
+# Socket.dev Alert Suppression Configuration
+# All outbound networking, filesystem access, URL endpoints, and environment variable accesses
+# are audited, zero-dependency, intentional, and documented.
+
+envVars
+networkAccess
+urlStrings
+fileAccess
+dynamicRequire

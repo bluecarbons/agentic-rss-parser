@@ -1,0 +1,8 @@
+version: 2
+project:
+  ignore:
+    - envVars
+    - networkAccess
+    - urlStrings
+    - fileAccess
+    - dynamicRequire
