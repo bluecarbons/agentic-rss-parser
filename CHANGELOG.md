@@ -5,6 +5,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.2] — 2026-08-26
+
+### Added & Optimized
+
+- **First-Class Subpath Exports & Zero-Cost Tree-Shaking** (`package.json`) — Added dedicated subpath entry points (`agentic-rss-parser/core`, `/json`, `/opml`, `/agent`, `/storage`, `/watcher`, `/mcp`) paired with granular TypeScript `.d.ts` declaration maps.
+- **Edge & Serverless Runtime Readiness** — The core XML, Atom, OPML, and JSON Feed parsers can now be imported independently without loading Node.js native bindings (`node:sqlite`, `node:fs`), providing zero-dependency execution in Cloudflare Workers, Next.js Edge, Bun, Deno, and Browser environments.
+- **Safe MCP Server Stdio Initialization** (`src/mcp/server.js`) — Encapsulated the stdio `readline` interface inside `startServer()`, ensuring importing MCP tool and resource definitions does not attach dangling background event loop listeners.
+
 ## [1.7.1] — 2026-08-25
 
 ### Security & Supply Chain Hardening
