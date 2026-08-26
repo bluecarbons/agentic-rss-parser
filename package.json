@@ -66,6 +66,30 @@
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
     },
+    "./core": {
+      "types": "./src/core/parser.d.ts",
+      "default": "./src/core/parser.js"
+    },
+    "./json": {
+      "types": "./src/core/json-feed.d.ts",
+      "default": "./src/core/json-feed.js"
+    },
+    "./opml": {
+      "types": "./src/core/opml.d.ts",
+      "default": "./src/core/opml.js"
+    },
+    "./agent": {
+      "types": "./src/agent.d.ts",
+      "default": "./src/agent.js"
+    },
+    "./storage": {
+      "types": "./src/storage.d.ts",
+      "default": "./src/storage.js"
+    },
+    "./watcher": {
+      "types": "./src/watcher.d.ts",
+      "default": "./src/watcher.js"
+    },
     "./cli": "./src/cli.js",
     "./mcp": {
       "types": "./src/mcp/server.d.ts",

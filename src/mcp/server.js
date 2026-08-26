@@ -13,13 +13,6 @@ const ALLOWED_PROVIDERS = new Set(['heuristic', 'openai', 'anthropic', 'local'])
 const MAX_CONCURRENT_TOOL_CALLS = normalizeMaxConcurrent(process.env.AGENTIC_RSS_MAX_CONCURRENCY);
 let activeToolCalls = 0;
 const toolCallQueue = [];
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-  terminal: false
-});
-
 import { createStorage } from '../storage.js';
 
 const resources = [
@@ -115,101 +108,123 @@ const tools = [
   }
 ];
 
-rl.on('line', async (line) => {
-  let requestId;
-  try {
-    const request = JSON.parse(line);
-    requestId = request.id;
+export { tools, resources, handleToolCall };
 
-    if (request.jsonrpc !== '2.0') {
-      return;
-    }
+export function startServer(input = process.stdin, output = process.stdout) {
+  const rl = readline.createInterface({
+    input,
+    output,
+    terminal: false
+  });
 
-    if (request.method === 'initialize') {
-      sendResponse(requestId, {
-        protocolVersion: '2024-11-05',
-        capabilities: { tools: {}, resources: {} },
-        serverInfo: { name: 'agentic-rss-parser', version: PKG_VERSION }
-      });
-      return;
-    }
+  function sendResponse(id, result) {
+    output.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
+  }
 
-    if (request.method === 'notifications/initialized') {
-      return;
-    }
+  function sendError(id, code, message) {
+    output.write(
+      JSON.stringify({ jsonrpc: '2.0', id: id ?? null, error: { code, message } }) + '\n'
+    );
+  }
 
-    if (request.method === 'tools/list') {
-      sendResponse(requestId, { tools });
-      return;
-    }
+  rl.on('line', async (line) => {
+    let requestId;
+    try {
+      const request = JSON.parse(line);
+      requestId = request.id;
 
-    if (request.method === 'resources/list') {
-      sendResponse(requestId, { resources });
-      return;
-    }
+      if (request.jsonrpc !== '2.0') {
+        return;
+      }
 
-    if (request.method === 'resources/read') {
-      const uri = request.params?.uri;
-      if (uri === 'rss://analyses/latest') {
-        const storage = createStorage(DEFAULT_DB_PATH);
+      if (request.method === 'initialize') {
+        sendResponse(requestId, {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: {}, resources: {} },
+          serverInfo: { name: 'agentic-rss-parser', version: PKG_VERSION }
+        });
+        return;
+      }
+
+      if (request.method === 'notifications/initialized') {
+        return;
+      }
+
+      if (request.method === 'tools/list') {
+        sendResponse(requestId, { tools });
+        return;
+      }
+
+      if (request.method === 'resources/list') {
+        sendResponse(requestId, { resources });
+        return;
+      }
+
+      if (request.method === 'resources/read') {
+        const uri = request.params?.uri;
+        if (uri === 'rss://analyses/latest') {
+          const storage = createStorage(DEFAULT_DB_PATH);
+          try {
+            const analyses = storage.getAnalyses({ limit: 25, decision: 'relevant' });
+            sendResponse(requestId, {
+              contents: [
+                {
+                  uri,
+                  mimeType: 'application/json',
+                  text: JSON.stringify(analyses, null, 2)
+                }
+              ]
+            });
+          } finally {
+            storage.close();
+          }
+          return;
+        }
+        sendError(requestId, -32602, `Unknown resource URI: ${uri}`);
+        return;
+      }
+
+      if (request.method === 'tools/call') {
+        const { name, arguments: args } = request.params || {};
+
+        if (!name || typeof name !== 'string') {
+          sendError(requestId, -32602, 'Invalid params: missing tool name');
+          return;
+        }
+        if (args === null || args === undefined || typeof args !== 'object' || Array.isArray(args)) {
+          sendError(requestId, -32602, 'Invalid params: arguments must be a JSON object');
+          return;
+        }
+
         try {
-          const analyses = storage.getAnalyses({ limit: 25, decision: 'relevant' });
-          sendResponse(requestId, {
-            contents: [
-              {
-                uri,
-                mimeType: 'application/json',
-                text: JSON.stringify(analyses, null, 2)
-              }
-            ]
-          });
-        } finally {
-          storage.close();
+          const result = await enqueueToolCall(() => handleToolCall(name, args));
+          sendResponse(requestId, result);
+        } catch (err) {
+          const code = err.code === -32602 ? -32602 : -32603;
+          sendError(requestId, code, err.message);
         }
         return;
       }
-      sendError(requestId, -32602, `Unknown resource URI: ${uri}`);
-      return;
-    }
 
-    if (request.method === 'tools/call') {
-      const { name, arguments: args } = request.params || {};
-
-      if (!name || typeof name !== 'string') {
-        sendError(requestId, -32602, 'Invalid params: missing tool name');
-        return;
+      if (requestId !== undefined) {
+        sendError(requestId, -32601, 'Method not found');
       }
-      if (args === null || args === undefined || typeof args !== 'object' || Array.isArray(args)) {
-        sendError(requestId, -32602, 'Invalid params: arguments must be a JSON object');
-        return;
-      }
-
-      try {
-        const result = await enqueueToolCall(() => handleToolCall(name, args));
-        sendResponse(requestId, result);
-      } catch (err) {
-        const code = err.code === -32602 ? -32602 : -32603;
-        sendError(requestId, code, err.message);
-      }
-      return;
+    } catch {
+      sendError(null, -32700, 'Parse error');
     }
+  });
 
-    if (requestId !== undefined) {
-      sendError(requestId, -32601, 'Method not found');
-    }
-  } catch {
-    sendError(null, -32700, 'Parse error');
-  }
-});
-
-function sendResponse(id, result) {
-  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
+  return rl;
 }
 
-function sendError(id, code, message) {
-  process.stdout.write(
-    JSON.stringify({ jsonrpc: '2.0', id: id ?? null, error: { code, message } }) + '\n'
-  );
+const isDirectRun =
+  process.argv[1] &&
+  (process.argv[1].endsWith('server.js') ||
+    process.argv[1].endsWith('agentic-rss-mcp.js') ||
+    process.argv[1].includes('agentic-rss-mcp'));
+
+if (isDirectRun) {
+  startServer();
 }
 
 function normalizeMaxConcurrent(raw) {

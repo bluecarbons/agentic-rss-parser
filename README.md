@@ -42,6 +42,32 @@ All `parseURL`, `parseString`, `parseFile`, `customFields`, and callback-style A
 
 ---
 
+## Tree-Shaking & Granular Subpath Exports
+
+To minimize bundle size in client applications, Edge runtimes (Cloudflare Workers, Next.js Edge, Deno, Bun), or specific pipelines, you can import subpaths directly without loading unused storage or LLM adapters:
+
+```js
+// Pure XML RSS/Atom Parser (Pure JS, ~6 KB, zero Node built-ins)
+import { parseFeedXml, parseFeedString, stripHtml } from 'agentic-rss-parser/core';
+
+// Pure JSON Feed Parser (~2.5 KB)
+import { isJsonFeed, parseJsonFeed } from 'agentic-rss-parser/json';
+
+// Pure OPML Parser (~1.8 KB)
+import { parseOpml } from 'agentic-rss-parser/opml';
+
+// Heuristic & LLM Scoring
+import { heuristicAnalyze, createAnalyzer } from 'agentic-rss-parser/agent';
+
+// Storage Adapters (SQLite / Memory)
+import { createStorage, createMemoryStorage } from 'agentic-rss-parser/storage';
+
+// Continuous Feed Watcher
+import { createFeedWatcher } from 'agentic-rss-parser/watcher';
+```
+
+---
+
 ## MCP Server
 
 Exposes MCP tools and resources over stdio for Claude Desktop, Cursor, and Cline:
@@ -136,7 +162,7 @@ Full documentation — installation, quick start, API reference, architecture, c
 git clone https://github.com/bluecarbons/agentic-rss-parser.git
 cd agentic-rss-parser
 pnpm install
-pnpm test    # 89 passing
+pnpm test    # 96 passing
 pnpm lint
 ```
 

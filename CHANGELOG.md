@@ -12,7 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - **Eliminated `createRequire` Dynamic Require** (`src/storage.js`) — Switched to native ESM `import { DatabaseSync } from 'node:sqlite'` to eliminate `dynamicRequire` and obfuscated import heuristics flagged by Socket.dev.
 - **Added Community Health & Compliance Manifests** — Added `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1) and `CONTRIBUTING.md` to resolve packaging manifest mismatches.
 - **Enhanced Module Purity & Tree-Shaking** (`package.json`) — Added `"sideEffects": false` to declare side-effect-free package loading.
-- **Socket.dev Configuration & Exemption Rules** (`.socketignore`, `.github/socket.yml`, `package.json`) — Explicitly declared and documented audited runtime networking and filesystem access across all supply chain dimensions.
+- **Granular Subpath Exports for Tree-Shaking** (`package.json`) — Added first-class subpath entry points (`/core`, `/json`, `/opml`, `/agent`, `/storage`, `/watcher`, `/mcp`) with dedicated TypeScript typings, enabling zero-dead-code bundles for edge runtimes (Cloudflare Workers, Next.js Edge, Browsers).
+- **Safe MCP Server Stdio Initialization** (`src/mcp/server.js`) — Encapsulated `readline` stdio interface in `startServer()` so importing tools/resources does not hang event loop listeners.
 
 ## [1.7.0] — 2026-08-23
 
