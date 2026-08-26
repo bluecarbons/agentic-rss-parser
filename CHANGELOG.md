@@ -5,6 +5,11 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.3] — 2026-08-26
+
+### Configuration & Supply Chain
+- **Added Root `socket.yml` v2 Configuration** — Added official repository-level `socket.yml` adhering to Socket.dev v2 spec with `projectIgnorePaths` for test and example fixtures.
+
 ## [1.7.2] — 2026-08-26
 
 ### Added & Optimized

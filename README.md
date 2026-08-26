@@ -10,7 +10,7 @@ An open-source Node.js library for parsing RSS, Atom, and JSON feeds with built-
 
 Part of the [BLUECARBONS Open Source](https://opensource.bluecarbons.com) initiative — software components powering agentic and agent-dependent products.
 
-> **v1.7.2** — Subpath Tree-Shaking & Edge Readiness: added first-class subpath exports (`/core`, `/json`, `/opml`, `/agent`, `/storage`, `/watcher`, `/mcp`), dedicated TypeScript declarations, and safe MCP server initialization. See [CHANGELOG.md](./CHANGELOG.md) for details.
+> **v1.7.3** — Subpath Tree-Shaking & Socket.dev v2 Policies: added first-class subpath exports (`/core`, `/json`, `/opml`, `/agent`, `/storage`, `/watcher`, `/mcp`), dedicated TypeScript declarations, safe MCP server initialization, and root `socket.yml` v2 policy config. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ---
 
